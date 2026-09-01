@@ -267,15 +267,15 @@ Single screen, no router, no UI library. Plain CSS — the surface is one list a
 
 A local Asterisk that can be joined by a softphone, so the full flow is verifiable by hand.
 
-- [ ] Create `deploy/docker-compose.yml` with an Asterisk service (pin an explicit image tag; if no suitable image exists, add `deploy/asterisk/Dockerfile` building from a distro package)
-- [ ] Expose 5038/tcp (AMI), 5060/udp (SIP), and 10000-10100/udp (RTP)
-- [ ] Write `deploy/asterisk/manager.conf` with a `westbridge` user, `permit` for the container network, `read = system,call,reporting`, `write = system,call,originate`; verify these permission classes actually allow `ConfbridgeList`, `ConfbridgeKick`, and `Originate` and widen them only if a command is rejected
-- [ ] Write `deploy/asterisk/http.conf` — leave it disabled, the app needs only AMI TCP
-- [ ] Write `deploy/asterisk/pjsip.conf` with a UDP transport and two softphone endpoints, `1001` and `1002`
-- [ ] Write `deploy/asterisk/confbridge.conf` with a `default_bridge` and `default_user` profile
-- [ ] Write `deploy/asterisk/extensions.conf`: context `internal` with `exten => 1000` running `ConfBridge(1000)`, and context `conference-out` with `exten => _X.` running `Dial(PJSIP/${EXTEN},30)`
-- [ ] Add `deploy/.env.example` with matching `WB_*` values (`WB_ROOM=1000`, `WB_ORIGINATE_CONTEXT=conference-out`)
-- [ ] Document in `deploy/README.md` how to register a softphone against endpoint 1001 and dial 1000
+- [x] Create `deploy/docker-compose.yml` with an Asterisk service (pin an explicit image tag; if no suitable image exists, add `deploy/asterisk/Dockerfile` building from a distro package)
+- [x] Expose 5038/tcp (AMI), 5060/udp (SIP), and 10000-10100/udp (RTP)
+- [x] Write `deploy/asterisk/manager.conf` with a `westbridge` user, `permit` for the container network, `read = system,call,reporting`, `write = system,call,originate`; verify these permission classes actually allow `ConfbridgeList`, `ConfbridgeKick`, and `Originate` and widen them only if a command is rejected
+- [x] Write `deploy/asterisk/http.conf` — leave it disabled, the app needs only AMI TCP
+- [x] Write `deploy/asterisk/pjsip.conf` with a UDP transport and two softphone endpoints, `1001` and `1002`
+- [x] Write `deploy/asterisk/confbridge.conf` with a `default_bridge` and `default_user` profile
+- [x] Write `deploy/asterisk/extensions.conf`: context `internal` with `exten => 1000` running `ConfBridge(1000)`, and context `conference-out` with `exten => _X.` running `Dial(PJSIP/${EXTEN},30)`
+- [x] Add `deploy/.env.example` with matching `WB_*` values (`WB_ROOM=1000`, `WB_ORIGINATE_CONTEXT=conference-out`)
+- [x] Document in `deploy/README.md` how to register a softphone against endpoint 1001 and dial 1000
 
 ### Task 8: End-to-end verification and documentation
 

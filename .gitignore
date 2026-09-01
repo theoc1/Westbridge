@@ -11,3 +11,6 @@ internal/web/assets/dist/*
 
 # stray output of "go build ./..." from the repo root
 /westbridge
+
+# Real stand credentials; deploy/.env.example is the committed template.
+deploy/.env

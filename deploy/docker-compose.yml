@@ -1,0 +1,28 @@
+name: westbridge-stand
+
+services:
+  asterisk:
+    build:
+      context: ./asterisk
+      dockerfile: Dockerfile
+    image: westbridge/asterisk:20-noble
+    container_name: westbridge-asterisk
+    restart: unless-stopped
+    ports:
+      - "5038:5038/tcp"        # AMI — the only interface Westbridge uses
+      - "5060:5060/udp"        # SIP signalling for the softphones
+      - "10000-10100:10000-10100/udp"  # RTP
+    volumes:
+      # Only the files this stand actually defines are overlaid; asterisk.conf,
+      # modules.conf and logger.conf stay as the distro shipped them.
+      - ./asterisk/manager.conf:/etc/asterisk/manager.conf:ro
+      - ./asterisk/http.conf:/etc/asterisk/http.conf:ro
+      - ./asterisk/pjsip.conf:/etc/asterisk/pjsip.conf:ro
+      - ./asterisk/confbridge.conf:/etc/asterisk/confbridge.conf:ro
+      - ./asterisk/extensions.conf:/etc/asterisk/extensions.conf:ro
+    healthcheck:
+      test: ["CMD", "asterisk", "-rx", "core show uptime"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
