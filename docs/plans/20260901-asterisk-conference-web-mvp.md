@@ -251,17 +251,17 @@ No HTTP and no WebSocket in this package.
 
 Single screen, no router, no UI library. Plain CSS — the surface is one list and one form.
 
-- [ ] Create `frontend/src/types.ts` mirroring the participant and snapshot JSON shapes
-- [ ] Create `frontend/src/api.ts` with typed `getConference`, `addParticipant`, `kickParticipant` helpers that surface backend error messages
-- [ ] Create `frontend/src/useConference.ts` — a hook owning the WebSocket, with exponential-backoff reconnect, cleanup on unmount, and a REST fetch as the initial fallback
-- [ ] Create `frontend/src/components/ParticipantList.tsx` showing caller ID, number, channel, and time in conference, with a per-row kick button
-- [ ] Add a confirmation step before kicking, and disable the row's button while the request is in flight
-- [ ] Create `frontend/src/components/AddParticipantForm.tsx` with client-side number validation, a pending state, and inline error display
-- [ ] Create `frontend/src/components/StatusBar.tsx` showing room number, participant count, and the Asterisk connection state
-- [ ] Grey out the roster and show an explicit warning banner when `asteriskConnected` is false
-- [ ] Render an empty state when the conference has no participants
-- [ ] Add `server.proxy` in `vite.config.ts` for `/api` and `/ws` (with `ws: true`) so `npm run dev` works against the Go backend
-- [ ] Write `frontend/src/styles.css` — readable defaults, works down to a phone-width viewport
+- [x] Create `frontend/src/types.ts` mirroring the participant and snapshot JSON shapes
+- [x] Create `frontend/src/api.ts` with typed `getConference`, `addParticipant`, `kickParticipant` helpers that surface backend error messages
+- [x] Create `frontend/src/useConference.ts` — a hook owning the WebSocket, with exponential-backoff reconnect, cleanup on unmount, and a REST fetch as the initial fallback
+- [x] Create `frontend/src/components/ParticipantList.tsx` showing caller ID, number, channel, and time in conference, with a per-row kick button
+- [x] Add a confirmation step before kicking, and disable the row's button while the request is in flight
+- [x] Create `frontend/src/components/AddParticipantForm.tsx` with client-side number validation, a pending state, and inline error display
+- [x] Create `frontend/src/components/StatusBar.tsx` showing room number, participant count, and the Asterisk connection state
+- [x] Grey out the roster and show an explicit warning banner when `asteriskConnected` is false
+- [x] Render an empty state when the conference has no participants
+- [x] Add `server.proxy` in `vite.config.ts` for `/api` and `/ws` (with `ws: true`) so `npm run dev` works against the Go backend
+- [x] Write `frontend/src/styles.css` — readable defaults, works down to a phone-width viewport
 
 ### Task 7: docker-compose test stand
 
