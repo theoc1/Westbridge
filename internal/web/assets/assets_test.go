@@ -41,6 +41,10 @@ func TestHandlerServesTheSPA(t *testing.T) {
 		{name: "root", path: "/", wantHTML: true, wantStatus: http.StatusOK},
 		{name: "deep link", path: "/some/route", wantHTML: true, wantStatus: http.StatusOK},
 		{name: "explicit index", path: "/index.html", wantHTML: true, wantStatus: http.StatusOK},
+		// A stale index.html referencing a bundle that is no longer embedded
+		// must fail loudly. Served the HTML shell instead, the browser
+		// reports a module/MIME error that says nothing about the real cause.
+		{name: "missing bundle", path: "/assets/index-deadbeef.js", wantStatus: http.StatusNotFound},
 	}
 
 	for _, tc := range tests {

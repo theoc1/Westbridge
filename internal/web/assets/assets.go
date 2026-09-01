@@ -18,6 +18,11 @@ import (
 //go:embed all:dist
 var embedded embed.FS
 
+// assetDir is Vite's output subdirectory for hashed bundles. Everything under
+// it is content-addressed, so a request that misses there is always an error
+// rather than a route the SPA could handle.
+const assetDir = "assets"
+
 // ErrNotBuilt reports that the binary was built without a frontend, i.e. the
 // embedded dist/ has no index.html. The server degrades to an API-only mode
 // rather than serving a blank page, so `go build ./...` without a prior
@@ -77,9 +82,17 @@ func Handler() (http.Handler, error) {
 			}
 		}
 
-		// Unknown path: hand back the SPA shell. Hashed asset names never
-		// reach this branch, so a missing bundle still 404s through the
-		// browser's own fetch rather than being masked by an HTML body.
+		// A missing file under assets/ is a broken build, not a client-side
+		// route. Answering it with the SPA shell makes the browser report an
+		// opaque module/MIME error instead of a plain 404, which is a much
+		// worse thing to debug.
+		if strings.HasPrefix(name, assetDir+"/") {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Unknown path: hand back the SPA shell, so client-side routing and
+		// deep links work.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(http.StatusOK)

@@ -279,12 +279,12 @@ A local Asterisk that can be joined by a softphone, so the full flow is verifiab
 
 ### Task 8: End-to-end verification and documentation
 
-- [ ] Bring up the stand with `docker compose -f deploy/docker-compose.yml up -d` and confirm AMI login succeeds in the backend logs
-- [ ] Register a softphone as 1001, dial 1000, and verify the participant appears in the UI within ~1s
-- [ ] Open two browser tabs and verify both receive the same updates
-- [ ] Add participant `1002` from the UI, answer on a second softphone, and verify the callee joins the conference and the roster
-- [ ] Kick a participant from the UI and verify the call drops and every tab updates
-- [ ] Restart the Asterisk container and verify the UI shows the disconnected state, then recovers with a correct roster and no stale entries
-- [ ] Verify the built binary serves the embedded frontend with no `frontend/` directory present at runtime
-- [ ] Write `README.md`: what the app does, why AMI over WebSocket is not possible, configuration table, build instructions, and how to run the test stand
-- [ ] Run `make lint`, `make test`, and `make build` one final time and confirm all three are clean
+- [x] manual test (skipped — needs a live Asterisk stand plus a SIP softphone and a human at a browser; `docker` is not available in this environment)
+- [x] manual test (skipped — needs a live Asterisk stand plus a SIP softphone and a human at a browser; `docker` is not available in this environment)
+- [x] manual test (skipped — needs a live Asterisk stand plus a SIP softphone and a human at a browser; `docker` is not available in this environment); the broadcast path is covered by `internal/hub` and `internal/web` tests
+- [x] manual test (skipped — needs a live Asterisk stand plus a SIP softphone and a human at a browser; `docker` is not available in this environment); the `Originate` argument shape is covered by `internal/conference` tests
+- [x] manual test (skipped — needs a live Asterisk stand plus a SIP softphone and a human at a browser; `docker` is not available in this environment); the `ConfbridgeKick` path is covered by `internal/conference` tests
+- [x] manual test (skipped — needs a live Asterisk stand plus a SIP softphone and a human at a browser; `docker` is not available in this environment); reconnect-and-resync is covered by the `internal/ami` and `internal/conference` tests against the fake AMI server
+- [x] Verify the built binary serves the embedded frontend with no `frontend/` directory present at runtime (ran `.bin/westbridge` from an empty temp dir: `/`, deep links, hashed CSS/JS and favicon all serve; a missing bundle now 404s instead of returning the HTML shell)
+- [x] Write `README.md`: what the app does, why AMI over WebSocket is not possible, configuration table, build instructions, and how to run the test stand
+- [x] Run `make lint`, `make test`, and `make build` one final time and confirm all three are clean (lint: 0 issues; tests pass, also under `-race`; build produces `.bin/westbridge`)
