@@ -236,16 +236,16 @@ No HTTP and no WebSocket in this package.
 
 ### Task 5: HTTP server, WebSocket hub, and wiring
 
-- [ ] Create `internal/hub/hub.go` — subscribe/unsubscribe/broadcast over `chan []byte`, per-client buffered channel, disconnect a client that falls behind instead of blocking the broadcaster
-- [ ] Write `internal/hub/hub_test.go` covering concurrent subscribe/broadcast/unsubscribe and slow-client eviction
-- [ ] Create `internal/web/server.go` using the stdlib `http.ServeMux` with Go 1.22 method patterns; add `github.com/coder/websocket` as the WS dependency
-- [ ] Implement `GET /api/conference`, `POST /api/conference/participants`, `DELETE /api/conference/participants/{uniqueid}` returning JSON errors as `{"error":"..."}`
-- [ ] Implement `GET /ws`: send the current snapshot immediately on connect, then stream subsequent snapshots; run a ping/pong keepalive and drop dead sockets
-- [ ] Create `internal/web/assets/assets.go` with `//go:embed all:dist`, serving `index.html` as the SPA fallback for unknown non-API paths
-- [ ] Add request logging and a panic-recovery middleware
-- [ ] Wire everything in `cmd/westbridge/main.go`: env config with validation of required variables, `log/slog` setup, AMI client, conference service, hub, HTTP server, and graceful shutdown on SIGINT/SIGTERM
-- [ ] Make the backend start and stay up when Asterisk is unreachable, reporting `asteriskConnected: false` rather than exiting
-- [ ] Write `internal/web/server_test.go` using `httptest` for the REST endpoints and one WebSocket snapshot test
+- [x] Create `internal/hub/hub.go` — subscribe/unsubscribe/broadcast over `chan []byte`, per-client buffered channel, disconnect a client that falls behind instead of blocking the broadcaster
+- [x] Write `internal/hub/hub_test.go` covering concurrent subscribe/broadcast/unsubscribe and slow-client eviction
+- [x] Create `internal/web/server.go` using the stdlib `http.ServeMux` with Go 1.22 method patterns; add `github.com/coder/websocket` as the WS dependency
+- [x] Implement `GET /api/conference`, `POST /api/conference/participants`, `DELETE /api/conference/participants/{uniqueid}` returning JSON errors as `{"error":"..."}`
+- [x] Implement `GET /ws`: send the current snapshot immediately on connect, then stream subsequent snapshots; run a ping/pong keepalive and drop dead sockets
+- [x] Create `internal/web/assets/assets.go` with `//go:embed all:dist`, serving `index.html` as the SPA fallback for unknown non-API paths
+- [x] Add request logging and a panic-recovery middleware
+- [x] Wire everything in `cmd/westbridge/main.go`: env config with validation of required variables, `log/slog` setup, AMI client, conference service, hub, HTTP server, and graceful shutdown on SIGINT/SIGTERM
+- [x] Make the backend start and stay up when Asterisk is unreachable, reporting `asteriskConnected: false` rather than exiting
+- [x] Write `internal/web/server_test.go` using `httptest` for the REST endpoints and one WebSocket snapshot test
 
 ### Task 6: React frontend
 
