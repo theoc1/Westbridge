@@ -194,13 +194,13 @@ This task is complete only when `make lint && make test && make build` is green 
 The AMI wire format is plain text: `Key: Value\r\n` lines, packets terminated by a blank line.
 Implement it as a standalone, fully tested layer with no networking so the client on top stays thin.
 
-- [ ] Create `internal/ami/message.go` with a `Message` type preserving field order and supporting repeated keys (`Variable:` may appear many times)
-- [ ] Implement `Message.Get(key)` with case-insensitive lookup — Asterisk's own casing is not stable across versions
-- [ ] Implement `Message.WriteTo(w)` emitting `Key: Value\r\n` lines plus the trailing `\r\n`
-- [ ] Implement a `Decoder` over `bufio.Reader` reading one packet per call, with a size cap to reject an unbounded packet
-- [ ] Add helpers `IsResponse()`, `IsEvent()`, `EventName()`, `ActionID()`
-- [ ] Handle the AMI banner line (`Asterisk Call Manager/x.y.z`) as a distinct first read, not as a packet
-- [ ] Write `internal/ami/message_test.go` covering multi-value keys, CRLF vs LF tolerance, the banner, oversized packets, and round-tripping
+- [x] Create `internal/ami/message.go` with a `Message` type preserving field order and supporting repeated keys (`Variable:` may appear many times)
+- [x] Implement `Message.Get(key)` with case-insensitive lookup — Asterisk's own casing is not stable across versions
+- [x] Implement `Message.WriteTo(w)` emitting `Key: Value\r\n` lines plus the trailing `\r\n`
+- [x] Implement a `Decoder` over `bufio.Reader` reading one packet per call, with a size cap to reject an unbounded packet
+- [x] Add helpers `IsResponse()`, `IsEvent()`, `EventName()`, `ActionID()`
+- [x] Handle the AMI banner line (`Asterisk Call Manager/x.y.z`) as a distinct first read, not as a packet
+- [x] Write `internal/ami/message_test.go` covering multi-value keys, CRLF vs LF tolerance, the banner, oversized packets, and round-tripping
 
 ### Task 3: AMI client with reconnect
 
