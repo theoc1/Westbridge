@@ -222,17 +222,17 @@ One reader goroutine owns the socket; everything else talks to it through channe
 The domain layer: what the conference currently looks like and the three operations on it.
 No HTTP and no WebSocket in this package.
 
-- [ ] Create `internal/conference/participant.go` with the `Participant` struct (uniqueid, channel, callerIdNum, callerIdName, admin, muted, joinedAt)
-- [ ] Create `internal/conference/roster.go` — a mutex-guarded map keyed by `Uniqueid`, with `Snapshot()` returning a sorted copy (by `joinedAt`, then uniqueid) for stable UI ordering
-- [ ] Create `internal/conference/service.go` with `List(ctx)` issuing `ConfbridgeList` for the configured room and replacing the roster wholesale
-- [ ] Implement `Kick(ctx, uniqueid)` — resolve the channel name from the roster, then send `ConfbridgeKick` with `Conference` and `Channel`; return a clear error for an unknown uniqueid
-- [ ] Implement `Invite(ctx, number)` — `Originate` with `Channel: Local/<number>@<context>`, `Application: ConfBridge`, `Data: <room>`, `CallerID`, `Timeout` in milliseconds, and `Async: true`
-- [ ] Validate and normalize the dialed number (digits and a leading `+` only) before it reaches the dialplan, and reject anything else
-- [ ] Handle events `ConfbridgeJoin`, `ConfbridgeLeave`, `ConfbridgeStart`, `ConfbridgeEnd`, filtering on the configured `Conference` field and ignoring other rooms
-- [ ] Log `OriginateResponse` outcomes matched by `ActionID` so failed invites are diagnosable
-- [ ] Trigger a full `List()` resync on every AMI reconnect and on a `WB_RESYNC_INTERVAL` ticker
-- [ ] Notify subscribers with a full snapshot on every roster change and on every AMI state change
-- [ ] Write `internal/conference/*_test.go` against the fake AMI server: initial list, join, leave, kick of an unknown participant, invite argument shape, resync after reconnect
+- [x] Create `internal/conference/participant.go` with the `Participant` struct (uniqueid, channel, callerIdNum, callerIdName, admin, muted, joinedAt)
+- [x] Create `internal/conference/roster.go` — a mutex-guarded map keyed by `Uniqueid`, with `Snapshot()` returning a sorted copy (by `joinedAt`, then uniqueid) for stable UI ordering
+- [x] Create `internal/conference/service.go` with `List(ctx)` issuing `ConfbridgeList` for the configured room and replacing the roster wholesale
+- [x] Implement `Kick(ctx, uniqueid)` — resolve the channel name from the roster, then send `ConfbridgeKick` with `Conference` and `Channel`; return a clear error for an unknown uniqueid
+- [x] Implement `Invite(ctx, number)` — `Originate` with `Channel: Local/<number>@<context>`, `Application: ConfBridge`, `Data: <room>`, `CallerID`, `Timeout` in milliseconds, and `Async: true`
+- [x] Validate and normalize the dialed number (digits and a leading `+` only) before it reaches the dialplan, and reject anything else
+- [x] Handle events `ConfbridgeJoin`, `ConfbridgeLeave`, `ConfbridgeStart`, `ConfbridgeEnd`, filtering on the configured `Conference` field and ignoring other rooms
+- [x] Log `OriginateResponse` outcomes matched by `ActionID` so failed invites are diagnosable
+- [x] Trigger a full `List()` resync on every AMI reconnect and on a `WB_RESYNC_INTERVAL` ticker
+- [x] Notify subscribers with a full snapshot on every roster change and on every AMI state change
+- [x] Write `internal/conference/*_test.go` against the fake AMI server: initial list, join, leave, kick of an unknown participant, invite argument shape, resync after reconnect
 
 ### Task 5: HTTP server, WebSocket hub, and wiring
 
