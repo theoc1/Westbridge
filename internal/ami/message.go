@@ -39,6 +39,14 @@ func NewAction(name string) *Message {
 	return m
 }
 
+// NewEvent returns a message with a single "Event" field. Asterisk sends
+// these; the constructor exists for tests and fakes that need to produce them.
+func NewEvent(name string) *Message {
+	m := &Message{}
+	m.Add("Event", name)
+	return m
+}
+
 // Add appends a field, keeping any existing field with the same key. This is
 // how repeated keys are built up.
 func (m *Message) Add(key, value string) {

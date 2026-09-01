@@ -207,15 +207,15 @@ Implement it as a standalone, fully tested layer with no networking so the clien
 A single connection multiplexing request/response, list-style actions, and an event stream.
 One reader goroutine owns the socket; everything else talks to it through channels.
 
-- [ ] Create `internal/ami/client.go`: `Dial`, banner read, `Login` action, and a `Run(ctx)` loop owning the single reader goroutine
-- [ ] Generate unique `ActionID`s and correlate responses through a mutex-guarded `map[string]chan *Message`
-- [ ] Implement `Action(ctx, msg) (*Message, error)` for single-response actions with a context deadline
-- [ ] Implement `ActionList(ctx, msg, completeEvent string) ([]*Message, error)` accumulating events until the terminator event with the matching `ActionID` arrives
-- [ ] Expose unsolicited events on a channel; drop-with-warning on a slow consumer rather than blocking the reader
-- [ ] Implement auto-reconnect with exponential backoff (1s -> 30s cap) and expose a `Connected() bool` plus a state-change callback
-- [ ] Fail every in-flight action with a clear error when the connection drops, so no caller hangs
-- [ ] Build `internal/ami/amitest` — a fake AMI server over `net.Listener` that speaks the banner, accepts `Login`, and replays scripted responses and events
-- [ ] Write `internal/ami/client_test.go` against the fake: successful login, bad credentials, single action, list action, event delivery, mid-action disconnect, reconnect
+- [x] Create `internal/ami/client.go`: `Dial`, banner read, `Login` action, and a `Run(ctx)` loop owning the single reader goroutine
+- [x] Generate unique `ActionID`s and correlate responses through a mutex-guarded `map[string]chan *Message`
+- [x] Implement `Action(ctx, msg) (*Message, error)` for single-response actions with a context deadline
+- [x] Implement `ActionList(ctx, msg, completeEvent string) ([]*Message, error)` accumulating events until the terminator event with the matching `ActionID` arrives
+- [x] Expose unsolicited events on a channel; drop-with-warning on a slow consumer rather than blocking the reader
+- [x] Implement auto-reconnect with exponential backoff (1s -> 30s cap) and expose a `Connected() bool` plus a state-change callback
+- [x] Fail every in-flight action with a clear error when the connection drops, so no caller hangs
+- [x] Build `internal/ami/amitest` — a fake AMI server over `net.Listener` that speaks the banner, accepts `Login`, and replays scripted responses and events
+- [x] Write `internal/ami/client_test.go` against the fake: successful login, bad credentials, single action, list action, event delivery, mid-action disconnect, reconnect
 
 ### Task 4: Conference roster and service
 
