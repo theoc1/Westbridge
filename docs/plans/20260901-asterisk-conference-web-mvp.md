@@ -178,16 +178,16 @@ ws message := {"type":"snapshot","room":"1000","asteriskConnected":true,"partici
 Establish a repo where all three validation commands pass before any feature code exists.
 This task is complete only when `make lint && make test && make build` is green on an empty app.
 
-- [ ] Verify Go >= 1.22 is on `PATH` (`go version`); if not, install a current Go toolchain and document the requirement in README
-- [ ] Verify `docker` and `docker compose` are on `PATH`; if Docker.app is installed but the CLI is missing, document the fix in README
-- [ ] Create `go.mod` (module `github.com/dmalkin/westbridge`, adjust to the real path) targeting the installed toolchain
-- [ ] Create `cmd/westbridge/main.go` with a stub `main` that parses config and exits, so `go build ./...` succeeds
-- [ ] Scaffold `frontend/` with `npm create vite@latest -- --template react-ts`; pin Vite 6 if Node is below 20.19
-- [ ] Set `build.outDir` to `../internal/web/assets/dist` and `emptyOutDir: true` in `vite.config.ts`
-- [ ] Create `internal/web/assets/dist/.gitkeep` and commit it; add `internal/web/assets/dist/*` (except `.gitkeep`) to `.gitignore`
-- [ ] Add `.golangci.yml` (enable `errcheck`, `govet`, `staticcheck`, `revive`, `gosec`) and install `golangci-lint` into `.bin/`
-- [ ] Add `Makefile` with `build` (frontend then `go build -o .bin/westbridge ./cmd/westbridge`), `test` (`go test ./...`), `lint` (`golangci-lint run` + `tsc --noEmit`), and `frontend` (`npm ci` if `node_modules` is missing, then `npm run build`)
-- [ ] Add `.gitignore` for `.bin/`, `node_modules/`, and build output
+- [x] Verify Go >= 1.22 is on `PATH` (`go version`); if not, install a current Go toolchain and document the requirement in README (found Go 1.27.0, requirement documented in README)
+- [x] Verify `docker` and `docker compose` are on `PATH`; if Docker.app is installed but the CLI is missing, document the fix in README (CLI missing; symlink fix documented in README)
+- [x] Create `go.mod` (module `github.com/dmalkin/westbridge`, adjust to the real path) targeting the installed toolchain
+- [x] Create `cmd/westbridge/main.go` with a stub `main` that parses config and exits, so `go build ./...` succeeds
+- [x] Scaffold `frontend/` with `npm create vite@latest -- --template react-ts`; pin Vite 6 if Node is below 20.19 (Node 26.8, so Vite 8 as scaffolded — no pin needed)
+- [x] Set `build.outDir` to `../internal/web/assets/dist` and `emptyOutDir: true` in `vite.config.ts`
+- [x] Create `internal/web/assets/dist/.gitkeep` and commit it; add `internal/web/assets/dist/*` (except `.gitkeep`) to `.gitignore`
+- [x] Add `.golangci.yml` (enable `errcheck`, `govet`, `staticcheck`, `revive`, `gosec`) and install `golangci-lint` into `.bin/`
+- [x] Add `Makefile` with `build` (frontend then `go build -o .bin/westbridge ./cmd/westbridge`), `test` (`go test ./...`), `lint` (`golangci-lint run` + `tsc --noEmit`), and `frontend` (`npm ci` if `node_modules` is missing, then `npm run build`)
+- [x] Add `.gitignore` for `.bin/`, `node_modules/`, and build output
 
 ### Task 2: AMI protocol codec
 

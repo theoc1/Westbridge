@@ -1,0 +1,26 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - revive
+    - gosec
+    - ineffassign
+    - unused
+  exclusions:
+    presets:
+      - common-false-positives
+    rules:
+      # Table-driven tests and fakes intentionally ignore some errors and use
+      # weak randomness for ActionIDs in fixtures.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+formatters:
+  enable:
+    - gofmt

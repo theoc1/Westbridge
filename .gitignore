@@ -1,0 +1,13 @@
+# Local tool binaries and build output
+.bin/
+node_modules/
+
+# Vite build output is embedded at build time, not committed. The directory
+# itself must survive so //go:embed all:dist keeps working on a fresh clone.
+internal/web/assets/dist/*
+!internal/web/assets/dist/.gitkeep
+
+.DS_Store
+
+# stray output of "go build ./..." from the repo root
+/westbridge
