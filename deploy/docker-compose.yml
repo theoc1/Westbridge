@@ -9,7 +9,11 @@ services:
     container_name: westbridge-asterisk
     restart: unless-stopped
     ports:
-      - "5038:5038/tcp"        # AMI — the only interface Westbridge uses
+      # AMI, the only interface Westbridge uses. Loopback only: the secret in
+      # manager.conf is committed to this repository, and manager.conf permits
+      # every RFC 1918 range, so publishing this on 0.0.0.0 hands call
+      # origination to anyone on the same Wi-Fi.
+      - "127.0.0.1:5038:5038/tcp"
       - "5060:5060/udp"        # SIP signalling for the softphones
       - "10000-10100:10000-10100/udp"  # RTP
     volumes:

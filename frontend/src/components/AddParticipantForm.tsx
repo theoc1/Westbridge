@@ -9,7 +9,9 @@ import { useAsyncAction } from '../useConference.ts'
  * a call is placed — the backend still validates, this is only for the message.
  */
 const FORMATTING = /[\s\-().]/g
-const VALID_NUMBER = /^\+?\d{1,23}$/
+// 24 characters total, matching conference.maxNumberLen — which counts the
+// "+", so a bare number gets one more digit than a prefixed one.
+const VALID_NUMBER = /^(\+\d{1,23}|\d{1,24})$/
 
 function validate(raw: string): string | null {
   const trimmed = raw.trim()

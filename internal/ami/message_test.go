@@ -331,3 +331,49 @@ func TestDecoderListSequence(t *testing.T) {
 		t.Errorf("terminator = %q", msgs[3].EventName())
 	}
 }
+
+// A newline inside a field would end the packet early and let the rest of the
+// value be read as an action of its own, so WriteTo refuses it. Reaching this
+// needs a value that survived conference.NormalizeNumber, but the codec is the
+// last place that can still tell, so it is the place that checks.
+func TestMessageWriteToRejectsNewlines(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{"LF in value", "Channel", "Local/1002@out\nAction: Command"},
+		{"CR in value", "Channel", "Local/1002@out\rAction: Command"},
+		{"LF in key", "Chan\nnel", "Local/1002@out"},
+		{"CR in key", "Chan\rnel", "Local/1002@out"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewAction("Originate")
+			m.Add(tt.key, tt.value)
+
+			var b strings.Builder
+			n, err := m.WriteTo(&b)
+			if !errors.Is(err, ErrInvalidField) {
+				t.Fatalf("WriteTo error = %v, want ErrInvalidField", err)
+			}
+			if n != 0 {
+				t.Errorf("WriteTo wrote n = %d bytes, want 0", n)
+			}
+			if b.String() != "" {
+				t.Errorf("WriteTo emitted %q, want nothing", b.String())
+			}
+			// String falls back to the error, which escapes the value, so
+			// a log line can never show the injected action on a line of
+			// its own.
+			s := m.String()
+			if !strings.HasPrefix(s, "ami.Message(error:") {
+				t.Errorf("String() = %q, want the error form", s)
+			}
+			if strings.ContainsAny(s, "\r\n") {
+				t.Errorf("String() = %q, want no raw newline", s)
+			}
+		})
+	}
+}

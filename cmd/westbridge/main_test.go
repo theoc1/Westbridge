@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +87,35 @@ func TestLoadConfigRejectsBadDuration(t *testing.T) {
 			t.Setenv(tc.name, tc.value)
 			if _, err := loadConfig(); err == nil {
 				t.Fatalf("loadConfig(%s=%s) succeeded, want error", tc.name, tc.value)
+			}
+		})
+	}
+}
+
+func TestLoadConfigAllowedOrigins(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  []string
+	}{
+		{"unset", "", nil},
+		{"single", "localhost:5173", []string{"localhost:5173"}},
+		{"list", "localhost:5173,wb.example", []string{"localhost:5173", "wb.example"}},
+		{"padded and trailing comma", " a , b ,", []string{"a", "b"}},
+		{"only separators", " , ,", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("WB_ALLOWED_ORIGINS", tt.value)
+
+			cfg, err := loadConfig()
+			if err != nil {
+				t.Fatalf("loadConfig: %v", err)
+			}
+			if !slices.Equal(cfg.AllowedOrigins, tt.want) {
+				t.Errorf("AllowedOrigins = %q, want %q", cfg.AllowedOrigins, tt.want)
 			}
 		})
 	}

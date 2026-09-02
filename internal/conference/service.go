@@ -122,6 +122,12 @@ type Service struct {
 	// because the callback runs on the client's reader goroutine.
 	state chan bool
 
+	// pubMu serialises snapshot publication. Changes originate on both Run's
+	// goroutine and on HTTP handlers, and without it two of them can capture
+	// snapshots in one order and broadcast them in the other, leaving every
+	// browser on the older view.
+	pubMu sync.Mutex
+
 	mu      sync.Mutex
 	subs    map[uint64]func(Snapshot)
 	nextSub uint64
@@ -150,9 +156,6 @@ func New(client AMIClient, cfg Config) *Service {
 	}
 }
 
-// Room is the conference this service controls.
-func (s *Service) Room() string { return s.cfg.Room }
-
 // Snapshot returns the current state without touching Asterisk.
 func (s *Service) Snapshot() Snapshot {
 	return Snapshot{
@@ -163,16 +166,26 @@ func (s *Service) Snapshot() Snapshot {
 }
 
 // Subscribe registers fn to receive a snapshot on every roster change and on
-// every AMI state change, and returns a function that unsubscribes it.
+// every AMI state change, and returns a function that unsubscribes it. fn is
+// called once with the current state before Subscribe returns, so a subscriber
+// never has to handle a "no snapshot yet" state and no update can slip through
+// between reading the state and subscribing to it.
 //
-// fn runs on the service's own goroutine and must not block; a subscriber that
-// needs to do real work should hand the snapshot to a buffered channel.
+// fn must not block: it runs on whichever goroutine caused the change, and one
+// slow subscriber would hold up every other one.
 func (s *Service) Subscribe(fn func(Snapshot)) func() {
+	// pubMu before mu, the same order as notify, and held across the initial
+	// call so it cannot be overtaken by a concurrent publication.
+	s.pubMu.Lock()
+	defer s.pubMu.Unlock()
+
 	s.mu.Lock()
 	id := s.nextSub
 	s.nextSub++
 	s.subs[id] = fn
 	s.mu.Unlock()
+
+	fn(s.Snapshot())
 
 	return func() {
 		s.mu.Lock()
@@ -192,8 +205,10 @@ func (s *Service) OnAMIStateChange(connected bool) {
 }
 
 // Run consumes the AMI event stream until ctx is cancelled, resyncing the
-// roster on every reconnect and on the configured interval.
-func (s *Service) Run(ctx context.Context) error {
+// roster on every reconnect and on the configured interval. Nothing that
+// happens on the AMI link is fatal to the service, so it has no error to
+// report: it either runs or the caller cancelled it.
+func (s *Service) Run(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.ResyncInterval)
 	defer ticker.Stop()
 
@@ -208,7 +223,7 @@ func (s *Service) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 
 		case msg := <-events:
 			s.handleEvent(msg)
@@ -453,7 +468,13 @@ func (s *Service) pruneInvites() {
 }
 
 // notify publishes the current snapshot to every subscriber.
+//
+// pubMu is held across the capture and the fan-out so that concurrent
+// publications cannot deliver their snapshots out of order.
 func (s *Service) notify() {
+	s.pubMu.Lock()
+	defer s.pubMu.Unlock()
+
 	snap := s.Snapshot()
 
 	s.mu.Lock()

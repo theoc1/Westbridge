@@ -8,6 +8,7 @@
 package ami
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -134,12 +135,24 @@ func (m *Message) IsSuccess() bool {
 	}
 }
 
+// ErrInvalidField reports a field whose key or value contains a newline. Such
+// a field would split one packet into two on the wire, letting whoever
+// supplied it inject actions of their own.
+var ErrInvalidField = errors.New("ami: field contains a newline")
+
 // WriteTo encodes the message in AMI wire format: one CRLF-terminated line per
 // field, followed by the empty line that terminates the packet. It implements
 // io.WriterTo.
+//
+// A field carrying a newline is refused rather than encoded: the packet
+// framing is the only thing separating one action from the next, so a value
+// that breaks it is header injection.
 func (m *Message) WriteTo(w io.Writer) (int64, error) {
 	var b strings.Builder
 	for _, f := range m.Fields {
+		if strings.ContainsAny(f.Key, "\r\n") || strings.ContainsAny(f.Value, "\r\n") {
+			return 0, fmt.Errorf("%w: %q", ErrInvalidField, f.Key+f.Value)
+		}
 		if f.Key == "" {
 			b.WriteString(f.Value)
 		} else {

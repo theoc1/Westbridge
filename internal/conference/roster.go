@@ -12,14 +12,11 @@ import (
 type Roster struct {
 	mu sync.RWMutex
 	m  map[string]Participant
-
-	// now is swappable so tests can pin join times.
-	now func() time.Time
 }
 
 // NewRoster returns an empty roster.
 func NewRoster() *Roster {
-	return &Roster{m: make(map[string]Participant), now: time.Now}
+	return &Roster{m: make(map[string]Participant)}
 }
 
 // Add inserts or updates a participant and reports whether anything changed.
@@ -143,6 +140,6 @@ func (r *Roster) resolveJoinedAt(p, prev Participant, existed bool) time.Time {
 	case !p.JoinedAt.IsZero():
 		return p.JoinedAt
 	default:
-		return r.now()
+		return time.Now()
 	}
 }

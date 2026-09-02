@@ -48,20 +48,23 @@ func newFakeConference(participants ...conference.Participant) *fakeConference {
 	}
 }
 
-func (f *fakeConference) Room() string { return f.snap.Room }
-
 func (f *fakeConference) Snapshot() conference.Snapshot {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.snap
 }
 
+// Subscribe mirrors conference.Service: the current snapshot is delivered
+// before it returns.
 func (f *fakeConference) Subscribe(fn func(conference.Snapshot)) func() {
 	f.mu.Lock()
 	id := f.nextSub
 	f.nextSub++
 	f.subs[id] = fn
+	snap := f.snap
 	f.mu.Unlock()
+
+	fn(snap)
 
 	return func() {
 		f.mu.Lock()
@@ -145,6 +148,10 @@ func do(t *testing.T, srv *web.Server, method, target, body string) *httptest.Re
 		reader = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, target, reader)
+	if method == http.MethodPost {
+		// What the frontend sends, and what the server now insists on.
+		req.Header.Set("Content-Type", "application/json")
+	}
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	return rec
@@ -470,5 +477,125 @@ func TestWebSocketClientsAreDisconnectedOnClose(t *testing.T) {
 	defer readCancel()
 	if _, _, err := conn.Read(readCtx); err == nil {
 		t.Fatal("read succeeded after Close, want the socket to be shut")
+	}
+}
+
+// A cross-site form can POST urlencoded, multipart or text/plain with no
+// preflight, and `{"number":"1900..."}=` is a valid body for all three while
+// still parsing as JSON. Requiring application/json forces a preflight the
+// browser will not get past, since this server sends no CORS headers.
+func TestAddParticipantRequiresJSONContentType(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		want        int
+	}{
+		{"no content type", "", http.StatusUnsupportedMediaType},
+		{"form encoded", "application/x-www-form-urlencoded", http.StatusUnsupportedMediaType},
+		{"multipart", "multipart/form-data; boundary=x", http.StatusUnsupportedMediaType},
+		{"text", "text/plain;charset=UTF-8", http.StatusUnsupportedMediaType},
+		{"json", "application/json", http.StatusAccepted},
+		{"json with charset", "application/json; charset=utf-8", http.StatusAccepted},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newFakeConference()
+			srv := newServer(t, svc, nil)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/conference/participants",
+				strings.NewReader(`{"number":"1002"}`))
+			if tt.contentType != "" {
+				req.Header.Set("Content-Type", tt.contentType)
+			}
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.want, rec.Body.String())
+			}
+
+			_, invited := svc.calls()
+			if tt.want == http.StatusAccepted {
+				if len(invited) != 1 {
+					t.Errorf("invited = %v, want the call to go through", invited)
+				}
+				return
+			}
+			if len(invited) != 0 {
+				t.Errorf("invited = %v, want no call placed", invited)
+			}
+			if body := decodeJSON[map[string]string](t, rec); body["error"] == "" {
+				t.Error("error body is empty, want an explanation")
+			}
+		})
+	}
+}
+
+// Browsers do not apply CORS to a WebSocket handshake, so the origin check is
+// the only thing keeping a page the operator happens to visit from opening a
+// socket and reading the roster.
+func TestWebSocketChecksOrigin(t *testing.T) {
+	tests := []struct {
+		name    string
+		allowed []string
+		origin  func(host string) string
+		wantOK  bool
+	}{
+		{"no origin header", nil, func(string) string { return "" }, true},
+		{"same origin", nil, func(host string) string { return "http://" + host }, true},
+		{"foreign origin", nil, func(string) string { return "http://evil.example" }, false},
+		{
+			"foreign origin not on the allow list",
+			[]string{"localhost:5173"},
+			func(string) string { return "http://evil.example" },
+			false,
+		},
+		{
+			"allow-listed origin, i.e. the Vite dev server",
+			[]string{"localhost:5173"},
+			func(string) string { return "http://localhost:5173" },
+			true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			allowed := tt.allowed
+			srv := newServer(t, newFakeConference(), func(cfg *web.Config) {
+				cfg.AllowedOrigins = allowed
+			})
+
+			httpSrv := httptest.NewServer(srv)
+			defer httpSrv.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			host := strings.TrimPrefix(httpSrv.URL, "http://")
+			opts := &websocket.DialOptions{HTTPHeader: http.Header{}}
+			if origin := tt.origin(host); origin != "" {
+				opts.HTTPHeader.Set("Origin", origin)
+			}
+
+			conn, resp, err := websocket.Dial(ctx, "ws://"+host+"/ws", opts)
+			if conn != nil {
+				defer func() { _ = conn.CloseNow() }()
+			}
+
+			if !tt.wantOK {
+				if err == nil {
+					t.Fatal("handshake succeeded, want it rejected")
+				}
+				if resp != nil && resp.StatusCode != http.StatusForbidden {
+					t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("dialing /ws: %v", err)
+			}
+			readSnapshot(ctx, t, conn)
+		})
 	}
 }

@@ -41,6 +41,7 @@ type config struct {
 	OriginateCallerID string
 	OriginateTimeout  time.Duration
 	ResyncInterval    time.Duration
+	AllowedOrigins    []string
 }
 
 func loadConfig() (config, error) {
@@ -52,6 +53,7 @@ func loadConfig() (config, error) {
 		Room:              os.Getenv("WB_ROOM"),
 		OriginateContext:  os.Getenv("WB_ORIGINATE_CONTEXT"),
 		OriginateCallerID: envOr("WB_ORIGINATE_CALLERID", "Westbridge <0000>"),
+		AllowedOrigins:    envList("WB_ALLOWED_ORIGINS"),
 	}
 
 	var missing []string
@@ -80,6 +82,18 @@ func loadConfig() (config, error) {
 		return config{}, err
 	}
 	return cfg, nil
+}
+
+// envList splits a comma-separated variable, dropping empty entries so a
+// trailing comma or a variable set to "" means "no extra values".
+func envList(name string) []string {
+	var out []string
+	for _, part := range strings.Split(os.Getenv(name), ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func envOr(name, fallback string) string {
@@ -138,7 +152,10 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 		Logger:            logger.With("component", "conference"),
 	})
 
-	srv, err := web.New(svc, web.Config{Logger: logger.With("component", "web")})
+	srv, err := web.New(svc, web.Config{
+		Logger:         logger.With("component", "web"),
+		AllowedOrigins: cfg.AllowedOrigins,
+	})
 	if err != nil {
 		return err
 	}
@@ -190,9 +207,7 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 	}()
 	go func() {
 		defer wg.Done()
-		if err := svc.Run(runCtx); err != nil && !errors.Is(err, context.Canceled) {
-			fail("conference service stopped", err)
-		}
+		svc.Run(runCtx)
 	}()
 
 	serveErr := make(chan error, 1)

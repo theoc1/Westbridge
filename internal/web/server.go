@@ -13,10 +13,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"runtime/debug"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -33,7 +32,6 @@ const maxRequestBody = 4 << 10
 
 // Conference is the slice of *conference.Service the HTTP layer needs.
 type Conference interface {
-	Room() string
 	Snapshot() conference.Snapshot
 	Subscribe(fn func(conference.Snapshot)) func()
 	Kick(ctx context.Context, uniqueID string) error
@@ -52,6 +50,11 @@ type Config struct {
 	PingInterval time.Duration
 	// WriteTimeout bounds a single WebSocket write or ping. Default 10s.
 	WriteTimeout time.Duration
+	// AllowedOrigins lists extra Origin host patterns accepted on the
+	// WebSocket handshake, in the syntax of websocket.AcceptOptions. The
+	// request's own host is always allowed; this is for a browser served from
+	// somewhere else, i.e. the Vite dev server. Empty means same-origin only.
+	AllowedOrigins []string
 	// Frontend overrides the embedded SPA handler. Tests set it; production
 	// leaves it nil and gets the build baked into the binary.
 	Frontend http.Handler
@@ -114,10 +117,9 @@ func New(svc Conference, cfg Config) (*Server, error) {
 	}
 	s.mux = s.routes(frontend)
 
-	// Publish before subscribing so a browser connecting during startup is
-	// never served an empty hub, and so the WebSocket handler needs no
-	// special case for "no snapshot yet".
-	s.publish(svc.Snapshot())
+	// Subscribe delivers the current snapshot before it returns, so the hub
+	// always has something to replay to a browser that connects during
+	// startup, with no window in which an update could be missed.
 	s.unsub = svc.Subscribe(s.publish)
 
 	return s, nil
@@ -140,18 +142,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) routes(frontend http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
-	s.handleMethods(mux, "/api/conference", map[string]http.HandlerFunc{
-		http.MethodGet: s.handleGetConference,
-	})
-	s.handleMethods(mux, "/api/conference/participants", map[string]http.HandlerFunc{
-		http.MethodPost: s.handleAddParticipant,
-	})
-	s.handleMethods(mux, "/api/conference/participants/{uniqueid}", map[string]http.HandlerFunc{
-		http.MethodDelete: s.handleKickParticipant,
-	})
-	s.handleMethods(mux, "/ws", map[string]http.HandlerFunc{
-		http.MethodGet: s.handleWebSocket,
-	})
+	s.handleMethod(mux, http.MethodGet, "/api/conference", s.handleGetConference)
+	s.handleMethod(mux, http.MethodPost, "/api/conference/participants", s.handleAddParticipant)
+	s.handleMethod(mux, http.MethodDelete, "/api/conference/participants/{uniqueid}", s.handleKickParticipant)
+	s.handleMethod(mux, http.MethodGet, "/ws", s.handleWebSocket)
 
 	// Anything else under /api/ is a genuine 404 in JSON. Without this the
 	// SPA catch-all below would answer a mistyped endpoint with an HTML page.
@@ -161,28 +155,26 @@ func (s *Server) routes(frontend http.Handler) http.Handler {
 
 	mux.Handle("/", frontend)
 
-	return s.recoverPanics(s.logRequests(mux))
+	// Recovery inside the access log, so a panicking request still produces
+	// its log line with the 500 and the duration on it.
+	return s.logRequests(s.recoverPanics(mux))
 }
 
-// handleMethods registers one handler per method on path, plus a method-less
-// pattern answering 405.
+// handleMethod registers h for method on path, plus a method-less pattern
+// answering 405.
 //
 // The 405 is registered explicitly because the SPA catch-all on "/" matches
 // every request: ServeMux only synthesises a method-not-allowed response when
 // nothing else matches, so without this a DELETE to a GET-only endpoint would
 // quietly return the HTML shell with a 200.
-func (s *Server) handleMethods(mux *http.ServeMux, path string, handlers map[string]http.HandlerFunc) {
-	allowed := make([]string, 0, len(handlers)+1)
-	for method, h := range handlers {
-		mux.HandleFunc(method+" "+path, h)
-		allowed = append(allowed, method)
-	}
+func (s *Server) handleMethod(mux *http.ServeMux, method, path string, h http.HandlerFunc) {
+	mux.HandleFunc(method+" "+path, h)
+
 	// Go's ServeMux answers HEAD with the GET handler, so advertise it too.
-	if _, ok := handlers[http.MethodGet]; ok {
-		allowed = append(allowed, http.MethodHead)
+	allow := method
+	if method == http.MethodGet {
+		allow = "GET, HEAD"
 	}
-	sort.Strings(allowed)
-	allow := strings.Join(allowed, ", ")
 
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", allow)
@@ -224,6 +216,16 @@ type addParticipantResponse struct {
 }
 
 func (s *Server) handleAddParticipant(w http.ResponseWriter, r *http.Request) {
+	// A cross-site HTML form can POST text/plain, multipart or urlencoded
+	// bodies with no preflight, and a body like `{"number":"1900..."}=` parses
+	// as JSON. Insisting on application/json forces a preflight, which the
+	// browser refuses without CORS headers this server never sends.
+	if !isJSONRequest(r) {
+		s.writeError(r.Context(), w, http.StatusUnsupportedMediaType,
+			"expected Content-Type: application/json")
+		return
+	}
+
 	var req addParticipantRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBody))
 	dec.DisallowUnknownFields()
@@ -246,6 +248,13 @@ func (s *Server) handleAddParticipant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(ctx, s.log, w, http.StatusAccepted, addParticipantResponse{ActionID: actionID})
 }
 
+// isJSONRequest reports whether the request body is declared as JSON, ignoring
+// any charset or other parameter after the media type.
+func isJSONRequest(r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mediaType == "application/json"
+}
+
 func (s *Server) handleKickParticipant(w http.ResponseWriter, r *http.Request) {
 	uniqueID := r.PathValue("uniqueid")
 	if uniqueID == "" {
@@ -265,10 +274,11 @@ func (s *Server) handleKickParticipant(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// The app has no authentication and is meant for a trusted network,
-		// so an origin check would provide no protection while breaking the
-		// Vite dev proxy. See README.
-		InsecureSkipVerify: true,
+		// Browsers do not apply CORS to a WebSocket handshake, so without an
+		// origin check any page the operator happens to visit could open a
+		// socket to this server and read the roster. Empty patterns mean
+		// same-origin; WB_ALLOWED_ORIGINS widens it for the Vite dev proxy.
+		OriginPatterns: s.cfg.AllowedOrigins,
 	})
 	if err != nil {
 		s.log.Warn("web: websocket handshake failed", "error", err, "remote", r.RemoteAddr)

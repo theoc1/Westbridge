@@ -118,15 +118,18 @@ func newHarness(t *testing.T, tune func(*conference.Config)) *harness {
 
 	go func() {
 		defer wg.Done()
-		if err := svc.Run(ctx); err != nil {
-			t.Errorf("service Run: %v", err)
-		}
+		svc.Run(ctx)
 	}()
 
 	// The connect that waitFor just observed queued a state change, and
-	// handling it triggers a resync. Draining that first snapshot here keeps a
-	// startup resync from racing whatever the test does next.
-	h.awaitSnapshot(t, "the service reports the initial AMI state", func(conference.Snapshot) bool { return true })
+	// handling it resyncs the roster before publishing. Waiting for a snapshot
+	// that reports the link as up therefore also waits for the startup resync,
+	// which would otherwise land mid-test and replace whatever the test set
+	// up. Subscribe published a disconnected snapshot of its own before any of
+	// this, so the predicate has to be the connected state and not "any".
+	h.awaitSnapshot(t, "the service reports the AMI link as up", func(s conference.Snapshot) bool {
+		return s.AsteriskConnected
+	})
 
 	t.Cleanup(func() {
 		cancel()

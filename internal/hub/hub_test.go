@@ -97,18 +97,13 @@ func TestSlowClientIsEvictedWithoutBlockingTheBroadcaster(t *testing.T) {
 	slow, _ := h.Subscribe()
 	fast, _ := h.Subscribe()
 
-	drained := make(chan []byte, 16)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for p := range fast {
-			drained <- p
-		}
-	}()
-
-	// One more broadcast than the slow client's buffer can hold.
+	// One more broadcast than the slow client's buffer can hold. The fast
+	// client is drained between broadcasts rather than by a goroutine racing
+	// them, so only the slow one can ever overflow.
+	var drained []string
 	for i := range 5 {
 		h.Broadcast([]byte(strconv.Itoa(i)))
+		drained = append(drained, string(recv(t, fast)))
 	}
 
 	// The slow client's channel is closed once its buffer overflows; what was
@@ -132,14 +127,17 @@ func TestSlowClientIsEvictedWithoutBlockingTheBroadcaster(t *testing.T) {
 
 	// The fast client saw everything, which is the point: one stalled reader
 	// must not cost the others any updates.
-	for i := range 5 {
-		if got := string(recv(t, drained)); got != strconv.Itoa(i) {
+	for i, got := range drained {
+		if got != strconv.Itoa(i) {
 			t.Fatalf("fast client received %q, want %q", got, strconv.Itoa(i))
 		}
 	}
 
+	// Closing the hub takes the survivor with it.
 	h.Close()
-	<-done
+	if _, ok := <-fast; ok {
+		t.Fatal("fast client yielded a payload after Close, want it closed")
+	}
 }
 
 func TestCloseDisconnectsEverybodyAndIsIdempotent(t *testing.T) {

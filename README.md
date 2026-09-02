@@ -141,12 +141,19 @@ All configuration comes from the environment.
 | `WB_ORIGINATE_CALLERID` | `Westbridge <0000>` | Caller ID for originated calls |
 | `WB_ORIGINATE_TIMEOUT` | `30s` | Dial timeout (sent to AMI as milliseconds) |
 | `WB_RESYNC_INTERVAL` | `30s` | Periodic full-roster resync |
+| `WB_ALLOWED_ORIGINS` | — | Comma-separated extra `Origin` hosts accepted on `/ws` |
 
 Missing required variables are reported together and the process exits non-zero.
 
 There is **no authentication**: this is an MVP meant for a trusted network or a VPN. Do not
 publish it to the internet as it stands — anyone who can reach it can drop calls and place
 outbound ones.
+
+What is enforced is that a *different* site cannot drive it from an operator's browser:
+`POST /api/conference/participants` requires `Content-Type: application/json`, which a
+cross-site form cannot send without a preflight, and the `/ws` handshake is same-origin
+unless `WB_ALLOWED_ORIGINS` widens it (browsers do not apply CORS to WebSockets, so this
+check is the only thing standing in the way).
 
 The AMI user needs `read = system,call,reporting` and `write = system,call,originate`;
 see `deploy/asterisk/manager.conf` for a working example.
@@ -199,9 +206,14 @@ expected on the stand and not worth debugging.
 Vite side by side and get hot reload:
 
 ```sh
-.bin/westbridge &
+WB_ALLOWED_ORIGINS=localhost:5173 .bin/westbridge &
 cd frontend && npm run dev
 ```
+
+`WB_ALLOWED_ORIGINS` is needed because the Vite proxy forwards the dev server's own
+`Origin` while rewriting `Host` to the backend, so the `/ws` handshake looks cross-origin.
+Without it the REST calls still work and the socket is refused with a 403. Point the proxy
+elsewhere with `WB_DEV_BACKEND`.
 
 ## Layout
 

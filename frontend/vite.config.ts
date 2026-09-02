@@ -16,8 +16,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': { target: backend, changeOrigin: true },
-      // The backend skips the WebSocket origin check, which is what lets the
-      // socket work through this proxy; see internal/web/server.go.
+      // The proxy forwards this page's Origin (localhost:5173) while
+      // changeOrigin rewrites Host to the backend, so the handshake looks
+      // cross-origin and the backend rejects it unless it is started with
+      // WB_ALLOWED_ORIGINS=localhost:5173. See the README.
       '/ws': { target: backend, ws: true, changeOrigin: true },
     },
   },
