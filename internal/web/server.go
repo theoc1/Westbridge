@@ -20,6 +20,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/dmalkin/westbridge/internal/ami"
+	"github.com/dmalkin/westbridge/internal/auth"
 	"github.com/dmalkin/westbridge/internal/conference"
 	"github.com/dmalkin/westbridge/internal/hub"
 	"github.com/dmalkin/westbridge/internal/web/assets"
@@ -40,6 +41,8 @@ type Conference interface {
 
 // Config tunes the server. Every field has a usable default.
 type Config struct {
+	Auth          *auth.Store
+	SecureCookies bool
 	// Logger receives request logs and recovered panics.
 	Logger *slog.Logger
 	// ActionTimeout bounds a kick or an invite, so a wedged AMI link cannot
@@ -80,24 +83,30 @@ func (c *Config) withDefaults() Config {
 // Server routes HTTP and WebSocket traffic to the conference service. It owns
 // the hub the snapshots fan out through.
 type Server struct {
-	cfg   Config
-	log   *slog.Logger
-	svc   Conference
-	hub   *hub.Hub
-	mux   http.Handler
-	unsub func()
+	loginLimit loginLimiter
+	loginSlots chan struct{}
+	cfg        Config
+	log        *slog.Logger
+	svc        Conference
+	hub        *hub.Hub
+	mux        http.Handler
+	unsub      func()
 }
 
 // New wires a server to svc and starts fanning snapshots out to the hub.
 // Call Close to stop.
 func New(svc Conference, cfg Config) (*Server, error) {
 	resolved := cfg.withDefaults()
+	if resolved.Auth == nil {
+		return nil, errors.New("authentication store is required")
+	}
 
 	s := &Server{
-		cfg: resolved,
-		log: resolved.Logger,
-		svc: svc,
-		hub: hub.New(hub.Config{Logger: resolved.Logger}),
+		cfg:        resolved,
+		loginSlots: make(chan struct{}, 4),
+		log:        resolved.Logger,
+		svc:        svc,
+		hub:        hub.New(hub.Config{Logger: resolved.Logger}),
 	}
 
 	frontend := resolved.Frontend
@@ -141,6 +150,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) routes(frontend http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	s.handleMethod(mux, http.MethodPost, "/api/auth/login", s.handleLogin)
+	s.handleMethod(mux, http.MethodGet, "/api/auth/me", s.handleMe)
+	s.handleMethod(mux, http.MethodPost, "/api/auth/logout", s.handleLogout)
+	mux.HandleFunc("/api/users", s.handleUsers)
+	s.handleMethod(mux, http.MethodPatch, "/api/users/{id}", s.handleUpdateUser)
 
 	s.handleMethod(mux, http.MethodGet, "/api/conference", s.handleGetConference)
 	s.handleMethod(mux, http.MethodPost, "/api/conference/participants", s.handleAddParticipant)
@@ -157,7 +171,7 @@ func (s *Server) routes(frontend http.Handler) http.Handler {
 
 	// Recovery inside the access log, so a panicking request still produces
 	// its log line with the 500 and the duration on it.
-	return s.logRequests(s.recoverPanics(mux))
+	return s.logRequests(s.recoverPanics(s.authMiddleware(mux)))
 }
 
 // handleMethod registers h for method on path, plus a method-less pattern
@@ -302,6 +316,17 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// The hub replays the latest snapshot to a new subscriber, so the browser
 	// has state to render before anything else happens in the conference.
+	cookie, _ := r.Cookie(sessionCookie)
+	sessionCheck := time.NewTicker(time.Second)
+	defer sessionCheck.Stop()
+	validSession := func() bool {
+		if _, err := s.cfg.Auth.Authenticate(cookie.Value); err != nil {
+			_ = conn.Close(websocket.StatusPolicyViolation, "session ended")
+			return false
+		}
+		return true
+	}
+
 	updates, unsubscribe := s.hub.Subscribe()
 	defer unsubscribe()
 
@@ -313,10 +338,18 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 
+		case <-sessionCheck.C:
+			if !validSession() {
+				return
+			}
+
 		case payload, ok := <-updates:
 			if !ok {
 				// Evicted for falling behind, or the server is shutting down.
 				_ = conn.Close(websocket.StatusTryAgainLater, "client is not keeping up")
+				return
+			}
+			if !validSession() {
 				return
 			}
 			if err := s.writeWS(ctx, conn, payload); err != nil {

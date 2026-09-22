@@ -1,9 +1,14 @@
+import { AuthGate } from './auth.tsx'
 import { AddParticipantForm } from './components/AddParticipantForm.tsx'
 import { ParticipantList } from './components/ParticipantList.tsx'
 import { StatusBar } from './components/StatusBar.tsx'
 import { useConference } from './useConference.ts'
 
 export default function App() {
+ return <AuthGate><Conference /></AuthGate>
+}
+
+function Conference() {
   const { snapshot, connected, error } = useConference()
 
   // Either link being down means the roster on screen may no longer match the

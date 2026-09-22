@@ -120,3 +120,25 @@ func TestLoadConfigAllowedOrigins(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthConfig(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("WB_DB_PATH", "")
+	t.Setenv("WB_COOKIE_SECURE", "")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DBPath != "data/westbridge.db" || !cfg.SecureCookies {
+		t.Fatal("unsafe auth defaults")
+	}
+	t.Setenv("WB_DB_PATH", "/tmp/custom.db")
+	t.Setenv("WB_COOKIE_SECURE", "false")
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DBPath != "/tmp/custom.db" || cfg.SecureCookies {
+		t.Fatal("auth overrides ignored")
+	}
+}

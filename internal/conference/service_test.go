@@ -238,19 +238,19 @@ func TestServiceListPopulatesRoster(t *testing.T) {
 	if !snap.AsteriskConnected {
 		t.Error("AsteriskConnected = false while the link is up")
 	}
-	if !equalIDs(snap.Participants, "b", "a") {
-		t.Fatalf("participants = %v, want [b a]", ids(snap.Participants))
+	if !equalIDs(snap.Participants, "a", "b") {
+		t.Fatalf("participants = %v, want [a b]", ids(snap.Participants))
 	}
 
-	first := snap.Participants[0]
+	first := snap.Participants[1]
 	if first.Channel != "PJSIP/1002-1" || first.CallerIDNum != "1002" || first.CallerIDName != "Caller 1002" {
 		t.Errorf("participant fields not parsed: %+v", first)
 	}
 	if first.Admin || first.Muted {
 		t.Errorf("Admin/Muted = %v/%v, want false/false", first.Admin, first.Muted)
 	}
-	if time.Since(first.JoinedAt) < 25*time.Second {
-		t.Errorf("JoinedAt = %v, want it derived from AnsweredTime=30", first.JoinedAt)
+	if !first.JoinedAt.IsZero() {
+		t.Errorf("JoinedAt = %v, want unknown for a snapshot", first.JoinedAt)
 	}
 }
 

@@ -30,6 +30,8 @@ type Field struct {
 // repeated keys such as Variable.
 type Message struct {
 	Fields []Field
+	// Sequence is assigned by Client when read; it is not an AMI wire field.
+	Sequence uint64
 }
 
 // NewAction returns a message with a single "Action" field, the mandatory first

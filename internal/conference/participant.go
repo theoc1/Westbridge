@@ -8,7 +8,6 @@
 package conference
 
 import (
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,17 +29,15 @@ type Participant struct {
 	CallerIDName string    `json:"callerIdName"`
 	Admin        bool      `json:"admin"`
 	Muted        bool      `json:"muted"`
-	JoinedAt     time.Time `json:"joinedAt"`
+	JoinedAt     time.Time `json:"joinedAt,omitzero"`
 }
 
 // participantFrom builds a participant out of a ConfbridgeJoin or
 // ConfbridgeList event. It reports false for a message that carries no
 // identity, which is how a malformed or unexpected event is discarded.
 //
-// JoinedAt is derived from AnsweredTime when the event carries one — only
-// ConfbridgeList does — because that is the sole way to learn the join time of
-// somebody who was already in the room before this process started. Otherwise
-// it is left zero and filled in by the roster.
+// ConfbridgeList cannot tell when a channel joined: AnsweredTime measures
+// the entire answered call. Leave JoinedAt unknown until a join is observed.
 func participantFrom(m *ami.Message) (Participant, bool) {
 	p := Participant{
 		UniqueID:     m.Get("Uniqueid"),
@@ -52,9 +49,6 @@ func participantFrom(m *ami.Message) (Participant, bool) {
 	}
 	if p.UniqueID == "" || p.Channel == "" {
 		return Participant{}, false
-	}
-	if secs, err := strconv.Atoi(m.Get("AnsweredTime")); err == nil && secs >= 0 {
-		p.JoinedAt = time.Now().Add(-time.Duration(secs) * time.Second)
 	}
 	return p, true
 }

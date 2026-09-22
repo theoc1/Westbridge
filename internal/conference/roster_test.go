@@ -109,8 +109,7 @@ func TestRosterReplaceKeepsKnownJoinTimes(t *testing.T) {
 	r := conference.NewRoster()
 	r.Add(participant("a", "PJSIP/1001-1", at(10)))
 
-	// A resync re-derives "a"'s join time from AnsweredTime and gets a
-	// slightly different answer; the roster must keep the one it already has.
+	// A replacement must preserve the join time already observed.
 	changed := r.Replace([]conference.Participant{
 		participant("a", "PJSIP/1001-1", at(11)),
 		participant("b", "PJSIP/1002-1", at(20)),

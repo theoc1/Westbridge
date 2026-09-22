@@ -113,11 +113,15 @@ export function useConference(): ConferenceState {
 
       // onclose fires after onerror too, so retrying from here alone covers
       // both a dropped connection and one that never opened.
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (cancelled) {
           return
         }
         setConnected(false)
+        if (event.code === 1008) {
+          window.dispatchEvent(new Event("westbridge-auth-expired"))
+          return
+        }
         const delay = Math.min(RECONNECT_MIN_MS * 2 ** attempt, RECONNECT_MAX_MS)
         attempt += 1
         timerRef.current = window.setTimeout(connect, delay)

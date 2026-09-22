@@ -8,7 +8,7 @@ deliberately no more:
 - **add** a participant by dialing a phone number.
 
 The whole application ships as one Go binary with the React frontend embedded in it.
-There is nothing to deploy alongside it and no database.
+Users and revocable sessions are stored in a local SQLite file; no separate database server is needed.
 
 ```
 browser  --HTTP/JSON--> Go backend --AMI TCP 5038--> Asterisk
@@ -121,6 +121,9 @@ Set the required variables and start it:
 ```sh
 export WB_AMI_USER=westbridge WB_AMI_SECRET=westbridge-secret
 export WB_ROOM=1000 WB_ORIGINATE_CONTEXT=conference-out
+# Local development over HTTP only:
+export WB_LISTEN=127.0.0.1:8080 WB_COOKIE_SECURE=false
+.bin/westbridge bootstrap-admin admin  # prompts for a password, once
 .bin/westbridge
 ```
 
@@ -133,6 +136,8 @@ All configuration comes from the environment.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `WB_LISTEN` | `:8080` | HTTP listen address |
+| `WB_DB_PATH` | `data/westbridge.db` | SQLite users/session file, relative to the working directory |
+| `WB_COOKIE_SECURE` | `true` | HTTPS-only cookies; set `false` for local HTTP development |
 | `WB_AMI_ADDR` | `127.0.0.1:5038` | Asterisk AMI address |
 | `WB_AMI_USER` | — | AMI username (**required**) |
 | `WB_AMI_SECRET` | — | AMI secret (**required**) |
@@ -145,22 +150,52 @@ All configuration comes from the environment.
 
 Missing required variables are reported together and the process exits non-zero.
 
-There is **no authentication**: this is an MVP meant for a trusted network or a VPN. Do not
-publish it to the internet as it stands — anyone who can reach it can drop calls and place
-outbound ones.
+### Users and sign-in
 
-What is enforced is that a *different* site cannot drive it from an operator's browser:
-`POST /api/conference/participants` requires `Content-Type: application/json`, which a
-cross-site form cannot send without a preflight, and the `/ws` handshake is same-origin
-unless `WB_ALLOWED_ORIGINS` widens it (browsers do not apply CORS to WebSockets, so this
-check is the only thing standing in the way).
+Run `.bin/westbridge bootstrap-admin admin` from the same working directory and
+with the same `WB_DB_PATH` as the server. It prompts twice for a password without
+showing it and only works on an empty user database. There are no default credentials.
+Passwords must have at least 12 characters (at most 1024 UTF-8 bytes). Logins are
+case insensitive and accept ASCII letters, digits, dots, underscores and hyphens.
 
-The AMI user needs `read = system,call,reporting` and `write = system,call,originate`;
+Sign in, then open **Users** to create accounts, change roles, reset passwords or
+disable users. Both roles can view, invite and kick conference participants; only
+administrators can manage accounts. The last active administrator cannot be disabled
+or demoted. Disabling an account keeps its stable ID for future user-owned settings.
+User settings and a phonebook are not part of this iteration.
+
+Authentication uses opaque, cryptographically random session tokens in **HttpOnly,
+SameSite=Strict** cookies. Tokens are stored only as SHA-256 hashes in SQLite;
+passwords use Argon2id (19 MiB, two passes, one lane), following the
+[OWASP password storage guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
+Sessions have a fixed 12-hour lifetime and survive server restarts. Signing out
+revokes that session. Any administrator change to an account revokes all of its
+sessions; existing WebSockets check validity before sending data and every second.
+
+Serve production behind **HTTPS**, leaving `WB_COOKIE_SECURE=true`. For local HTTP
+on loopback, use `WB_COOKIE_SECURE=false` (already set in `deploy/.env.example`).
+Keep the SQLite file in a persistent writable directory and include it in backups;
+the application creates it with owner-only permissions. The file contains users,
+password hashes and sessions, and is ignored by Git under `data/`.
+
+All conference API routes and `/ws` require a session. Mutating API calls require
+`Content-Type: application/json` and reject foreign browser origins; `WB_ALLOWED_ORIGINS`
+can allow trusted development origins. Login attempts are limited to ten per minute
+per direct client IP, with at most four password checks running concurrently. Behind
+a reverse proxy this limit applies to the proxy IP; forwarded IP headers are not trusted.
+
+The AMI user needs `read = system,call,reporting` and `write = system,call,originate,reporting`;
 see `deploy/asterisk/manager.conf` for a working example.
 
 ### HTTP API
 
 ```
+POST   /api/auth/login                         body {"login":"...","password":"..."} -> user + session cookie
+GET    /api/auth/me                            -> current user
+POST   /api/auth/logout                        -> 204, revokes session
+GET    /api/users                              -> users (admin only)
+POST   /api/users                              body {"login":"...","password":"...","role":"user"} -> 201 (admin)
+PATCH  /api/users/{id}                          body {"role":"user","enabled":false,"password":"..."} (all fields optional, admin)
 GET    /api/conference                         -> 200 {"room":"1000","asteriskConnected":true,"participants":[...]}
 POST   /api/conference/participants            body {"number":"1002"} -> 202 {"actionId":"..."}
 DELETE /api/conference/participants/{uniqueid} -> 204
@@ -177,6 +212,9 @@ Errors come back as `{"error":"..."}`. A participant looks like:
 }
 ```
 
+`joinedAt` is omitted when the participant was first discovered by a snapshot;
+Asterisk reports call age, not time in the conference. The UI shows “—” in that case.
+
 The WebSocket sends the current snapshot immediately on connect and then one message per
 change: `{"type":"snapshot","room":"1000","asteriskConnected":true,"participants":[...]}`.
 
@@ -189,7 +227,9 @@ and two softphone endpoints, **1001** and **1002**.
 docker compose -f deploy/docker-compose.yml up -d --build
 cp deploy/.env.example deploy/.env
 set -a; . ./deploy/.env; set +a
-make build && .bin/westbridge
+make build
+.bin/westbridge bootstrap-admin admin  # first run only
+.bin/westbridge
 ```
 
 Register a softphone as `1001` (password `1001-secret`) against `127.0.0.1:5060` over UDP

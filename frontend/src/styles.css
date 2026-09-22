@@ -319,3 +319,14 @@ body {
     flex: 1 1 auto;
   }
 }
+
+/* Authentication and user management */
+.account-bar { max-width: 44rem; margin: 0 auto; padding: 1rem; display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; border-bottom: 1px solid var(--border); }
+.account-bar > strong { margin-right: auto; }
+.login-page { max-width: 26rem; margin-top: 8vh; }
+.login-page h1 { text-align: center; }
+.add-form h2 { margin: 0 0 .5rem; font-size: 1.1rem; }
+.login-page .add-form, .admin-page .add-form { gap: .7rem; }
+.user-edit { width: 100%; display: flex; flex-direction: column; gap: .6rem; }
+.user-row > .add-form-note { width: 100%; }
+.roster-identity strong { overflow-wrap: anywhere; }

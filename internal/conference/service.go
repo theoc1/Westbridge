@@ -50,6 +50,7 @@ type AMIClient interface {
 	ActionList(ctx context.Context, msg *ami.Message, completeEvent string) ([]*ami.Message, error)
 	Events() <-chan *ami.Message
 	Connected() bool
+	EventSequence() uint64
 }
 
 // Config parameterises the service. Room and OriginateContext are mandatory.
@@ -121,6 +122,10 @@ type Service struct {
 	// goroutine to Run. It is buffered and dropped into non-blockingly,
 	// because the callback runs on the client's reader goroutine.
 	state chan bool
+
+	// Serialize resync and event application, including their sequence boundary.
+	syncMu        sync.Mutex
+	ignoreThrough uint64
 
 	// pubMu serialises snapshot publication. Changes originate on both Run's
 	// goroutine and on HTTP handlers, and without it two of them can capture
@@ -247,6 +252,10 @@ func (s *Service) Run(ctx context.Context) {
 
 // List rebuilds the roster from a ConfbridgeList and returns the result.
 func (s *Service) List(ctx context.Context) (Snapshot, error) {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+	// Packets already read precede this snapshot. Do not replay them after it.
+	boundary := s.client.EventSequence()
 	action := ami.NewAction(actionConfbridgeList)
 	action.Add("Conference", s.cfg.Room)
 
@@ -255,6 +264,7 @@ func (s *Service) List(ctx context.Context) (Snapshot, error) {
 		// An empty or not-yet-created conference is an error on the wire but
 		// not an error here: it simply means nobody is in the room.
 		if isNoSuchConference(err) {
+			s.ignoreThrough = boundary
 			if s.roster.Clear() {
 				s.notify()
 			}
@@ -263,6 +273,7 @@ func (s *Service) List(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
+	s.ignoreThrough = boundary
 	participants := make([]Participant, 0, len(events))
 	for _, ev := range events {
 		if !strings.EqualFold(ev.EventName(), eventConfbridgeList) {
@@ -352,12 +363,18 @@ func (s *Service) Invite(ctx context.Context, number string) (string, error) {
 
 // handleEvent applies one unsolicited AMI event to the roster.
 func (s *Service) handleEvent(msg *ami.Message) {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
 	name := msg.EventName()
 
 	// OriginateResponse is the only event we care about that is not scoped to
 	// a conference, so it is matched before the room filter.
 	if strings.EqualFold(name, eventOriginateResponse) {
 		s.handleOriginateResponse(msg)
+		return
+	}
+
+	if msg.Sequence != 0 && msg.Sequence <= s.ignoreThrough {
 		return
 	}
 

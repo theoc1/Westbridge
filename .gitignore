@@ -14,3 +14,6 @@ internal/web/assets/dist/*
 
 # Real stand credentials; deploy/.env.example is the committed template.
 deploy/.env
+
+# Users, password hashes and session database
+/data/

@@ -17,7 +17,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit, notifyUnauthorized = true): Promise<T> {
   let response: Response
   try {
     response = await fetch(path, init)
@@ -26,7 +26,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError('cannot reach the server', 0, { cause })
   }
 
-  if (!response.ok) {
+  if (notifyUnauthorized && response.status === 401 && path !== "/api/auth/login") {
+ window.dispatchEvent(new Event("westbridge-auth-expired"))
+ }
+ if (!response.ok) {
     throw new ApiError(await errorMessage(response), response.status)
   }
   if (response.status === 204) {
@@ -74,6 +77,6 @@ export function addParticipant(number: string): Promise<AddParticipantResponse> 
 export function kickParticipant(uniqueid: string): Promise<void> {
   return request<void>(
     `/api/conference/participants/${encodeURIComponent(uniqueid)}`,
-    { method: 'DELETE' },
+    { method: 'DELETE', headers: { 'Content-Type': 'application/json' } },
   )
 }

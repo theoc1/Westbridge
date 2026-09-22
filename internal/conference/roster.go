@@ -27,6 +27,9 @@ func (r *Roster) Add(p Participant) bool {
 
 	prev, existed := r.m[p.UniqueID]
 	p.JoinedAt = r.resolveJoinedAt(p, prev, existed)
+	if p.JoinedAt.IsZero() {
+		p.JoinedAt = time.Now()
+	}
 	if existed && prev == p {
 		return false
 	}
@@ -59,9 +62,8 @@ func (r *Roster) Get(uniqueID string) (Participant, bool) {
 // resync does. It reports whether the result differs from what was there.
 //
 // A participant already present keeps the join time the roster already knows,
-// because a join happens once and re-deriving it from AnsweredTime on every
-// resync would make the list jitter in the UI. New participants keep their own
-// JoinedAt, or get the current time when it is zero.
+// because a join happens once. New participants keep their own JoinedAt;
+// zero remains unknown when first discovered by a snapshot.
 func (r *Roster) Replace(ps []Participant) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -140,6 +142,6 @@ func (r *Roster) resolveJoinedAt(p, prev Participant, existed bool) time.Time {
 	case !p.JoinedAt.IsZero():
 		return p.JoinedAt
 	default:
-		return time.Now()
+		return time.Time{}
 	}
 }

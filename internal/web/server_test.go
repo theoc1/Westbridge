@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/dmalkin/westbridge/internal/ami"
+	"github.com/dmalkin/westbridge/internal/auth"
 	"github.com/dmalkin/westbridge/internal/conference"
 	"github.com/dmalkin/westbridge/internal/web"
 )
@@ -112,10 +113,30 @@ func (f *fakeConference) calls() (kicked, invited []string) {
 	return append([]string(nil), f.kicked...), append([]string(nil), f.invited...)
 }
 
+var serverTokens sync.Map
+
+func testCookie(srv *web.Server) *http.Cookie {
+	token, _ := serverTokens.Load(srv)
+	return &http.Cookie{Name: "westbridge_session", Value: token.(string)}
+}
+
 func newServer(t *testing.T, svc web.Conference, tune func(*web.Config)) *web.Server {
 	t.Helper()
 
+	store, err := auth.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if _, err = store.Bootstrap("tester", "test-password-123"); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Login("tester", "test-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := web.Config{
+		Auth:          store,
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		ActionTimeout: 2 * time.Second,
 		PingInterval:  50 * time.Millisecond,
@@ -136,6 +157,8 @@ func newServer(t *testing.T, svc web.Conference, tune func(*web.Config)) *web.Se
 	if err != nil {
 		t.Fatalf("web.New: %v", err)
 	}
+	serverTokens.Store(srv, token)
+	t.Cleanup(func() { serverTokens.Delete(srv) })
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -148,11 +171,12 @@ func do(t *testing.T, srv *web.Server, method, target, body string) *httptest.Re
 		reader = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, target, reader)
-	if method == http.MethodPost {
+	if method != http.MethodGet && method != http.MethodHead {
 		// What the frontend sends, and what the server now insists on.
 		req.Header.Set("Content-Type", "application/json")
 	}
 	rec := httptest.NewRecorder()
+	req.AddCookie(testCookie(srv))
 	srv.ServeHTTP(rec, req)
 	return rec
 }
@@ -425,7 +449,7 @@ func TestWebSocketSendsTheCurrentSnapshotThenStreamsUpdates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpSrv.URL, "http")+"/ws", nil)
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpSrv.URL, "http")+"/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Cookie": {testCookie(srv).String()}}})
 	if err != nil {
 		t.Fatalf("dialing /ws: %v", err)
 	}
@@ -463,7 +487,7 @@ func TestWebSocketClientsAreDisconnectedOnClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpSrv.URL, "http")+"/ws", nil)
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpSrv.URL, "http")+"/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Cookie": {testCookie(srv).String()}}})
 	if err != nil {
 		t.Fatalf("dialing /ws: %v", err)
 	}
@@ -509,6 +533,7 @@ func TestAddParticipantRequiresJSONContentType(t *testing.T) {
 				req.Header.Set("Content-Type", tt.contentType)
 			}
 			rec := httptest.NewRecorder()
+			req.AddCookie(testCookie(srv))
 			srv.ServeHTTP(rec, req)
 
 			if rec.Code != tt.want {
@@ -573,7 +598,7 @@ func TestWebSocketChecksOrigin(t *testing.T) {
 			defer cancel()
 
 			host := strings.TrimPrefix(httpSrv.URL, "http://")
-			opts := &websocket.DialOptions{HTTPHeader: http.Header{}}
+			opts := &websocket.DialOptions{HTTPHeader: http.Header{"Cookie": {testCookie(srv).String()}}}
 			if origin := tt.origin(host); origin != "" {
 				opts.HTTPHeader.Set("Origin", origin)
 			}

@@ -46,10 +46,14 @@ docker compose -f deploy/docker-compose.yml exec asterisk asterisk -rx 'manager 
 ```sh
 cp deploy/.env.example deploy/.env
 set -a; . ./deploy/.env; set +a
-make build && .bin/westbridge
+make build
+.bin/westbridge bootstrap-admin admin  # first run only, prompts for password
+.bin/westbridge
 ```
 
-Then open <http://localhost:8080>. The backend starts even when the container
+Then open <http://localhost:8080> and sign in as the administrator you created.
+The example environment enables cookies over local HTTP; use HTTPS and
+`WB_COOKIE_SECURE=true` outside local development. The backend starts even when the container
 is down; the UI just reports Asterisk as disconnected until AMI comes back.
 
 ## Register a softphone

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/dmalkin/westbridge/internal/ami"
+	"github.com/dmalkin/westbridge/internal/auth"
 	"github.com/dmalkin/westbridge/internal/conference"
 	"github.com/dmalkin/westbridge/internal/web"
 )
@@ -32,6 +33,8 @@ var errComponentFailed = errors.New("a background component stopped unexpectedly
 // config holds every knob the application exposes, all of them sourced from
 // the environment. See README.md for the authoritative table.
 type config struct {
+	DBPath            string
+	SecureCookies     bool
 	Listen            string
 	AMIAddr           string
 	AMIUser           string
@@ -46,6 +49,8 @@ type config struct {
 
 func loadConfig() (config, error) {
 	cfg := config{
+		DBPath:            envOr("WB_DB_PATH", "data/westbridge.db"),
+		SecureCookies:     envOr("WB_COOKIE_SECURE", "true") != "false",
 		Listen:            envOr("WB_LISTEN", ":8080"),
 		AMIAddr:           envOr("WB_AMI_ADDR", "127.0.0.1:5038"),
 		AMIUser:           os.Getenv("WB_AMI_USER"),
@@ -129,6 +134,12 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 	// ami.Client takes its state callback at construction while the service
 	// needs the client, so the two are tied together through a closure. The
 	// client is not running yet, so nothing can observe the nil.
+	store, err := auth.Open(cfg.DBPath)
+	if err != nil {
+		return fmt.Errorf("open user database: %w", err)
+	}
+	defer func() { _ = store.Close() }()
+
 	var svc *conference.Service
 
 	client := ami.New(ami.Config{
@@ -153,6 +164,8 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 	})
 
 	srv, err := web.New(svc, web.Config{
+		Auth:           store,
+		SecureCookies:  cfg.SecureCookies,
 		Logger:         logger.With("component", "web"),
 		AllowedOrigins: cfg.AllowedOrigins,
 	})
@@ -244,6 +257,13 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		if err := adminCommand(os.Args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
 

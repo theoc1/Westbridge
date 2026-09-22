@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/dmalkin/westbridge/internal/auth"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -35,6 +37,7 @@ func TestRunServesWithoutAsterisk(t *testing.T) {
 	listen := freeAddr(t)
 	cfg := config{
 		Listen: listen,
+		DBPath: filepath.Join(t.TempDir(), "users.db"),
 		// Port 1 on loopback refuses connections immediately, so the client
 		// spends the test reconnecting instead of blocking on a dial.
 		AMIAddr:           "127.0.0.1:1",
@@ -47,6 +50,18 @@ func TestRunServesWithoutAsterisk(t *testing.T) {
 		ResyncInterval:    time.Hour,
 	}
 
+	store, err := auth.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Bootstrap("tester", "test-password-123"); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.Login("tester", "test-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -55,7 +70,7 @@ func TestRunServesWithoutAsterisk(t *testing.T) {
 		done <- run(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	}()
 
-	body := getWithRetry(t, "http://"+listen+"/api/conference")
+	body := getWithRetry(t, "http://"+listen+"/api/conference", token)
 
 	var snap struct {
 		Room              string `json:"room"`
@@ -93,12 +108,17 @@ func TestRunServesWithoutAsterisk(t *testing.T) {
 	_ = ln.Close()
 }
 
-func getWithRetry(t *testing.T, url string) []byte {
+func getWithRetry(t *testing.T, url, token string) []byte {
 	t.Helper()
 
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		resp, err := http.Get(url) //nolint:gosec // the URL is built by the test
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.AddCookie(&http.Cookie{Name: "westbridge_session", Value: token})
+		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			body, readErr := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()

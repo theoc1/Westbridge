@@ -8,8 +8,8 @@ export interface Participant {
   callerIdName: string
   admin: boolean
   muted: boolean
-  /** RFC 3339 timestamp of the moment the channel joined the bridge. */
-  joinedAt: string
+  /** Observed bridge join time (RFC 3339); absent when unknown. */
+  joinedAt?: string
 }
 
 export interface Snapshot {

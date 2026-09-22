@@ -119,9 +119,10 @@ type Client struct {
 	cfg Config
 	log *slog.Logger
 
-	events chan *Message
-	prefix string
-	seq    atomic.Uint64
+	events   chan *Message
+	prefix   string
+	seq      atomic.Uint64
+	received atomic.Uint64
 
 	mu   sync.Mutex
 	sess *session
@@ -146,6 +147,9 @@ func New(cfg Config) *Client {
 // are dropped with a warning rather than stalling the reader — which is safe
 // here because the roster is rebuilt from a full ConfbridgeList on a timer.
 func (c *Client) Events() <-chan *Message { return c.events }
+
+// EventSequence is the last packet read, monotonically increasing across sessions.
+func (c *Client) EventSequence() uint64 { return c.received.Load() }
 
 // Connected reports whether the AMI link is currently up and logged in.
 func (c *Client) Connected() bool {
@@ -261,7 +265,7 @@ func (c *Client) login(sess *session, dec *Decoder) error {
 	action.Add("Secret", c.cfg.Secret)
 	action.Add("Events", "on")
 
-	if err := sess.write(action); err != nil {
+	if err := sess.write(context.Background(), action); err != nil {
 		return fmt.Errorf("ami: send login: %w", err)
 	}
 
@@ -283,6 +287,7 @@ func (c *Client) login(sess *session, dec *Decoder) error {
 // route hands a decoded packet either to the action waiting for it or to the
 // unsolicited event stream.
 func (c *Client) route(sess *session, msg *Message) {
+	msg.Sequence = c.received.Add(1)
 	if id := msg.ActionID(); id != "" {
 		if p := sess.lookup(id); p != nil {
 			select {
@@ -353,7 +358,7 @@ func (c *Client) do(ctx context.Context, msg *Message, completeEvent string) (*M
 	}
 	defer sess.unregister(id)
 
-	if err := sess.write(msg); err != nil {
+	if err := sess.write(ctx, msg); err != nil {
 		return nil, nil, err
 	}
 
@@ -454,7 +459,7 @@ func (c *Client) notify(connected bool) {
 type session struct {
 	conn net.Conn
 
-	writeMu sync.Mutex
+	writeGate chan struct{}
 
 	mu      sync.Mutex
 	pending map[string]*pending
@@ -466,17 +471,40 @@ type session struct {
 
 func newSession(conn net.Conn) *session {
 	return &session{
-		conn:    conn,
-		pending: make(map[string]*pending),
-		done:    make(chan struct{}),
+		conn:      conn,
+		writeGate: make(chan struct{}, 1),
+		pending:   make(map[string]*pending),
+		done:      make(chan struct{}),
 	}
 }
 
-func (s *session) write(msg *Message) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-
-	if _, err := msg.WriteTo(s.conn); err != nil {
+func (s *session) write(ctx context.Context, msg *Message) error {
+	select {
+	case s.writeGate <- struct{}{}:
+		defer func() { <-s.writeGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.done:
+		return ErrDisconnected
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Closing on cancellation interrupts a blocked write. A partially sent
+	// packet cannot be retried on this connection without corrupting framing.
+	stopped := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { s.close(); close(stopped) })
+	_, err := msg.WriteTo(s.conn)
+	if !stop() {
+		<-stopped
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err != nil {
+		if !errors.Is(err, ErrInvalidField) {
+			s.close()
+		}
 		return fmt.Errorf("ami: write action: %w", err)
 	}
 	return nil
