@@ -5,7 +5,7 @@ deliberately no more:
 
 - a **live participant list** that updates as calls join and leave;
 - **kick** a participant;
-- **add** a participant by dialing a phone number.
+- **add** participants by dialing multiple numbers, with per-call cancellation and retry.
 
 The whole application ships as one Go binary with the React frontend embedded in it.
 Users and revocable sessions are stored in a local SQLite file; no separate database server is needed.
@@ -196,9 +196,11 @@ POST   /api/auth/logout                        -> 204, revokes session
 GET    /api/users                              -> users (admin only)
 POST   /api/users                              body {"login":"...","password":"...","role":"user"} -> 201 (admin)
 PATCH  /api/users/{id}                          body {"role":"user","enabled":false,"password":"..."} (all fields optional, admin)
-GET    /api/conference                         -> 200 {"room":"1000","asteriskConnected":true,"participants":[...]}
+GET    /api/conference                         -> 200 {"room":"1000","asteriskConnected":true,"participants":[...],"calls":[...]}
 POST   /api/conference/participants            body {"number":"1002"} -> 202 {"actionId":"..."}
 DELETE /api/conference/participants/{uniqueid} -> 204
+DELETE /api/conference/calls/{id}               -> 204 (cancel a dial or remove a failed row)
+POST   /api/conference/calls/{id}/retry          -> 202 {"actionId":"..."}
 GET    /ws                                     -> WebSocket, server -> client only
 ```
 
@@ -216,7 +218,39 @@ Errors come back as `{"error":"..."}`. A participant looks like:
 Asterisk reports call age, not time in the conference. The UI shows “—” in that case.
 
 The WebSocket sends the current snapshot immediately on connect and then one message per
-change: `{"type":"snapshot","room":"1000","asteriskConnected":true,"participants":[...]}`.
+change: `{"type":"snapshot","room":"1000","asteriskConnected":true,"participants":[...],"calls":[...]}`.
+
+### Outgoing call states
+
+The form is ready for another number as soon as the server accepts the attempt;
+it does not wait for an answer. Everyone viewing the conference sees the same calls:
+
+- Green: a participant has actually joined ConfBridge; **Kick** removes them.
+- Yellow: an independent dial attempt is in progress; **Cancel** requests a real
+  AMI Hangup and stays in “Cancelling” until the channel is gone.
+- Red: the call failed, with a reason such as Busy, No answer, Unavailable or
+  Connection failed; **Retry** starts a new attempt and **Remove** dismisses it.
+
+Snapshots include `calls`, an array of `{id, number, state, reason?, createdAt,
+cancelling?}`. `state` is `dialing` or `failed`; connected calls appear only in
+`participants`. Async Originate acceptance creates an attempt even if the later
+outcome is a failure. An ambiguous network error remains pending until Asterisk
+confirms an outcome; it is never treated as proof that no call exists.
+
+Westbridge sets `ChannelId` and `OtherChannelId` and uses `Local/.../n` so that
+channel IDs remain stable. Correlation and cancellation use those IDs, not phone
+numbers. If an answer races with Cancel, the same outgoing channel is hung up.
+DialEnd, Hangup and OriginateResponse supply failure reasons; the most specific
+available reason wins. Ordinary AMI outcomes are delivered to the event stream
+even when the command acknowledgement is still pending.
+
+Call rows are transient, shared in-memory state, not call history: they reset on a
+Westbridge restart. Existing conference participants are rediscovered by resync.
+There are at most 200 tracked outgoing attempts/connected calls; remove old failed
+rows to free space. A lost AMI connection disables call control until reconnection.
+Missing terminal events are reconciled after the dial timeout plus ten seconds:
+a fresh conference snapshot protects already-connected participants before any
+remaining expired attempt is hung up.
 
 ## Local Asterisk test stand
 

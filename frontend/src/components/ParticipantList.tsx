@@ -1,7 +1,7 @@
 import { formatDuration } from '../duration.ts'
 import { useEffect, useState } from 'react'
-import { kickParticipant } from '../api.ts'
-import type { Participant } from '../types.ts'
+import { cancelCall, retryCall, kickParticipant } from '../api.ts'
+import type { Participant, OutgoingCall } from '../types.ts'
 import { useAsyncAction } from '../useConference.ts'
 
 /** Ticks the "time in conference" column without re-rendering on every frame. */
@@ -30,14 +30,16 @@ function displayName(p: Participant): string {
 
 interface ParticipantListProps {
   participants: Participant[]
+  calls: OutgoingCall[]
+  socketConnected: boolean
   /** True when the roster may be out of date, i.e. the AMI link is down. */
   stale: boolean
 }
 
-export function ParticipantList({ participants, stale }: ParticipantListProps) {
+export function ParticipantList({ participants, calls, stale, socketConnected }: ParticipantListProps) {
   const now = useNow()
 
-  if (participants.length === 0) {
+  if (participants.length === 0 && calls.length === 0) {
     return (
       <p className="empty-state">
         Nobody is in the conference yet. Dial in, or call a number above.
@@ -46,7 +48,8 @@ export function ParticipantList({ participants, stale }: ParticipantListProps) {
   }
 
   return (
-    <ul className={`roster${stale ? ' roster-stale' : ''}`}>
+    <ul className={`roster${stale ? ' roster-stale' : ''}`} aria-label="Calls and participants">
+      {calls.map(call => <CallRow key={call.id} call={call} stale={stale} socketConnected={socketConnected} duration={formatDuration(call.createdAt, now)} />)}
       {participants.map((participant) => (
         <ParticipantRow
           key={participant.uniqueid}
@@ -82,7 +85,7 @@ function ParticipantRow({ participant, disabled, duration }: ParticipantRowProps
   }
 
   return (
-    <li className="roster-row participant-row">
+    <li className="roster-row participant-row call-connected">
       <div className="roster-identity">
         <div className="participant-heading">
           <span className="roster-name">{displayName(participant)}</span>
@@ -96,6 +99,7 @@ function ParticipantRow({ participant, disabled, duration }: ParticipantRowProps
       </div>
 
       <div className="roster-meta">
+        <span className="call-state">Connected</span>
         {participant.admin && <span className="tag">admin</span>}
         {participant.muted && <span className="tag">muted</span>}
         <span className="roster-duration" title="Time in conference">
@@ -140,4 +144,28 @@ function ParticipantRow({ participant, disabled, duration }: ParticipantRowProps
       </div>
     </li>
   )
+}
+
+
+function CallRow({ call, stale, socketConnected, duration }: {
+  call: OutgoingCall; stale: boolean; socketConnected: boolean; duration: string
+}) {
+  const { pending, error, run } = useAsyncAction()
+  const failed = call.state === 'failed'
+  return <li className={`roster-row participant-row ${failed ? 'call-failed' : 'call-dialing'}`}>
+    <div className="roster-identity">
+      <div className="participant-heading">
+        <span className="roster-name">{call.number}</span>
+        <span className="call-state">{failed ? (call.reason || 'Connection failed') : call.cancelling ? 'Cancelling…' : (call.reason || 'Dialling…')}</span>
+      </div>
+      {error && <span role="alert" className="roster-error">{error}</span>}
+    </div>
+    {!failed && <span className="roster-duration" title="Time since dialling">{duration}</span>}
+    <div className="roster-actions">
+      {failed && <button type="button" className="button" disabled={pending || stale} onClick={() => { void run(() => retryCall(call.id)) }}>Retry</button>}
+      <button type="button" className="button button-quiet" disabled={pending || call.cancelling || (failed ? !socketConnected : stale)} onClick={() => { void run(() => cancelCall(call.id)) }}>
+        {pending ? 'Working…' : failed ? 'Remove' : 'Cancel'}
+      </button>
+    </div>
+  </li>
 }

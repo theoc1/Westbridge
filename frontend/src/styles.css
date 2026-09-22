@@ -337,3 +337,28 @@ body {
   .participant-row { align-items: center; }
   .participant-row .roster-actions { width: auto; margin-left: auto; }
 }
+
+/* State is conveyed by both a label and a subtle background. */
+:root {
+  --call-connected-bg: #edf8f0;
+  --call-connected-border: #b6d9be;
+  --call-dialing-bg: #fff8e5;
+  --call-dialing-border: #e7d393;
+  --call-failed-bg: #fff0ed;
+  --call-failed-border: #e5b8b0;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --call-connected-bg: #1c3024;
+    --call-connected-border: #355e41;
+    --call-dialing-bg: #352e1b;
+    --call-dialing-border: #746236;
+    --call-failed-bg: #38231f;
+    --call-failed-border: #75473e;
+  }
+}
+.call-connected { background: var(--call-connected-bg); border-color: var(--call-connected-border); }
+.call-dialing { background: var(--call-dialing-bg); border-color: var(--call-dialing-border); }
+.call-failed { background: var(--call-failed-bg); border-color: var(--call-failed-border); }
+.call-state { font-size: .75rem; color: var(--text-muted); }
+.call-dialing .participant-heading, .call-failed .participant-heading { flex-wrap: wrap; }

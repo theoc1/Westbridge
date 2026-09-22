@@ -624,3 +624,13 @@ func TestWebSocketChecksOrigin(t *testing.T) {
 		})
 	}
 }
+
+func (f *fakeConference) CancelCall(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.kicked = append(f.kicked, id)
+	return f.kickErr
+}
+func (f *fakeConference) RetryCall(ctx context.Context, id string) (string, error) {
+	return f.Invite(ctx, id)
+}

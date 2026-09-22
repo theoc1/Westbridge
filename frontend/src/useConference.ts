@@ -37,6 +37,7 @@ function parseSnapshot(data: unknown): Snapshot | null {
     room: message.room,
     asteriskConnected: message.asteriskConnected,
     participants: message.participants,
+    calls: message.calls ?? [],
   }
 }
 

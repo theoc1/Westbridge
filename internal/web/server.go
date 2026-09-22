@@ -37,6 +37,8 @@ type Conference interface {
 	Subscribe(fn func(conference.Snapshot)) func()
 	Kick(ctx context.Context, uniqueID string) error
 	Invite(ctx context.Context, number string) (string, error)
+	CancelCall(ctx context.Context, id string) error
+	RetryCall(ctx context.Context, id string) (string, error)
 }
 
 // Config tunes the server. Every field has a usable default.
@@ -160,6 +162,8 @@ func (s *Server) routes(frontend http.Handler) http.Handler {
 	s.handleMethod(mux, http.MethodPost, "/api/conference/participants", s.handleAddParticipant)
 	s.handleMethod(mux, http.MethodDelete, "/api/conference/participants/{uniqueid}", s.handleKickParticipant)
 	s.handleMethod(mux, http.MethodGet, "/ws", s.handleWebSocket)
+	s.handleMethod(mux, http.MethodDelete, "/api/conference/calls/{id}", s.handleCancelCall)
+	s.handleMethod(mux, http.MethodPost, "/api/conference/calls/{id}/retry", s.handleRetryCall)
 
 	// Anything else under /api/ is a genuine 404 in JSON. Without this the
 	// SPA catch-all below would answer a mistyped endpoint with an HTML page.
@@ -457,6 +461,10 @@ type errorResponse struct {
 // forwarded to the browser.
 func (s *Server) writeServiceError(ctx context.Context, w http.ResponseWriter, op string, err error) {
 	switch {
+	case errors.Is(err, conference.ErrCallNotFound):
+		s.writeError(ctx, w, http.StatusNotFound, err.Error())
+	case errors.Is(err, conference.ErrCallState), errors.Is(err, conference.ErrCallLimit):
+		s.writeError(ctx, w, http.StatusConflict, err.Error())
 	case errors.Is(err, conference.ErrParticipantNotFound):
 		s.writeError(ctx, w, http.StatusNotFound, "participant is no longer in the conference")
 	case errors.Is(err, conference.ErrInvalidNumber):

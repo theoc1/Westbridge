@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +97,7 @@ type Snapshot struct {
 	Room              string        `json:"room"`
 	AsteriskConnected bool          `json:"asteriskConnected"`
 	Participants      []Participant `json:"participants"`
+	Calls             []Call        `json:"calls"`
 }
 
 // Service owns the roster and turns AMI traffic into snapshots.
@@ -136,14 +137,7 @@ type Service struct {
 	mu      sync.Mutex
 	subs    map[uint64]func(Snapshot)
 	nextSub uint64
-	invites map[string]invite
-}
-
-// invite remembers an Originate in flight so its asynchronous outcome can be
-// logged against the number that was dialled.
-type invite struct {
-	number string
-	at     time.Time
+	invites map[string]*callAttempt
 }
 
 // New returns a service that is not running yet; call Run to start consuming
@@ -157,17 +151,47 @@ func New(client AMIClient, cfg Config) *Service {
 		roster:  NewRoster(),
 		state:   make(chan bool, 8),
 		subs:    make(map[uint64]func(Snapshot)),
-		invites: make(map[string]invite),
+		invites: make(map[string]*callAttempt),
 	}
 }
 
 // Snapshot returns the current state without touching Asterisk.
 func (s *Service) Snapshot() Snapshot {
-	return Snapshot{
-		Room:              s.cfg.Room,
-		AsteriskConnected: s.client.Connected(),
-		Participants:      s.roster.Snapshot(),
+	participants := s.roster.Snapshot()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	calls := make([]Call, 0)
+	visible := make([]Participant, 0, len(participants))
+	for _, p := range participants {
+		if attempt, ok := s.invites[p.UniqueID]; ok {
+			if attempt.cancelRequested {
+				continue
+			}
+			p.CallerIDNum = attempt.Number
+			if attempt.name != "" {
+				p.CallerIDName = attempt.name
+			}
+		}
+		visible = append(visible, p)
 	}
+	for _, attempt := range s.invites {
+		if attempt.State != "connected" || attempt.cancelRequested {
+			call := attempt.Call
+			if attempt.cancelRequested {
+				call.State = "dialing"
+				call.Reason = "Cancelling…"
+				call.Cancelling = true
+			}
+			calls = append(calls, call)
+		}
+	}
+	sort.Slice(calls, func(i, j int) bool {
+		if calls[i].CreatedAt.Equal(calls[j].CreatedAt) {
+			return calls[i].ID < calls[j].ID
+		}
+		return calls[i].CreatedAt.Before(calls[j].CreatedAt)
+	})
+	return Snapshot{Room: s.cfg.Room, AsteriskConnected: s.client.Connected(), Participants: visible, Calls: calls}
 }
 
 // Subscribe registers fn to receive a snapshot on every roster change and on
@@ -216,6 +240,8 @@ func (s *Service) OnAMIStateChange(connected bool) {
 func (s *Service) Run(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.ResyncInterval)
 	defer ticker.Stop()
+	maintenance := time.NewTicker(time.Second)
+	defer maintenance.Stop()
 
 	// The link may already be up by the time Run starts, in which case no
 	// state change is coming and the roster would stay empty until the first
@@ -241,8 +267,10 @@ func (s *Service) Run(ctx context.Context) {
 			}
 			s.notify()
 
+		case <-maintenance.C:
+			s.maintainCalls(ctx)
+
 		case <-ticker.C:
-			s.pruneInvites()
 			if s.client.Connected() {
 				s.resync(ctx)
 			}
@@ -265,6 +293,7 @@ func (s *Service) List(ctx context.Context) (Snapshot, error) {
 		// not an error here: it simply means nobody is in the room.
 		if isNoSuchConference(err) {
 			s.ignoreThrough = boundary
+			s.forgetDeparted(nil)
 			if s.roster.Clear() {
 				s.notify()
 			}
@@ -287,7 +316,12 @@ func (s *Service) List(ctx context.Context) (Snapshot, error) {
 		}
 	}
 
-	if s.roster.Replace(participants) {
+	s.forgetDeparted(participants)
+	changed := s.roster.Replace(participants)
+	if s.reconcileJoined(participants) {
+		changed = true
+	}
+	if changed {
 		s.notify()
 	}
 	return s.Snapshot(), nil
@@ -322,55 +356,16 @@ func (s *Service) Kick(ctx context.Context, uniqueID string) error {
 	return nil
 }
 
-// Invite dials number and drops the answered call into the conference. It
-// returns the ActionID correlating the request with the OriginateResponse
-// event that reports the outcome.
-//
-// The Originate is asynchronous on purpose: the application holds a single AMI
-// connection, and a synchronous Originate would block it for the whole dial
-// timeout.
-func (s *Service) Invite(ctx context.Context, number string) (string, error) {
-	normalized, err := NormalizeNumber(number)
-	if err != nil {
-		return "", err
-	}
-
-	actionID := newActionID()
-	action := ami.NewAction(actionOriginate)
-	action.Add("ActionID", actionID)
-	action.Add("Channel", fmt.Sprintf("Local/%s@%s", normalized, s.cfg.OriginateContext))
-	action.Add("Application", "ConfBridge")
-	action.Add("Data", s.cfg.Room)
-	action.Add("CallerID", s.cfg.OriginateCallerID)
-	action.Add("Timeout", strconv.FormatInt(s.cfg.OriginateTimeout.Milliseconds(), 10))
-	action.Add("Async", "true")
-
-	s.mu.Lock()
-	s.invites[actionID] = invite{number: normalized, at: time.Now()}
-	s.mu.Unlock()
-
-	if _, err := s.client.Action(ctx, action); err != nil {
-		s.mu.Lock()
-		delete(s.invites, actionID)
-		s.mu.Unlock()
-		return "", fmt.Errorf("invite %s: %w", normalized, err)
-	}
-
-	s.log.Info("conference: invite queued",
-		"room", s.cfg.Room, "number", normalized, "action_id", actionID)
-	return actionID, nil
-}
-
 // handleEvent applies one unsolicited AMI event to the roster.
 func (s *Service) handleEvent(msg *ami.Message) {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
 	name := msg.EventName()
+	s.handleCallEvent(msg)
 
 	// OriginateResponse is the only event we care about that is not scoped to
 	// a conference, so it is matched before the room filter.
 	if strings.EqualFold(name, eventOriginateResponse) {
-		s.handleOriginateResponse(msg)
 		return
 	}
 
@@ -398,6 +393,7 @@ func (s *Service) handleEvent(msg *ami.Message) {
 			s.log.Warn("conference: ignoring a join event with no channel identity", "event", msg.String())
 			return
 		}
+		s.reconcileJoined([]Participant{p})
 		if s.roster.Add(p) {
 			s.log.Info("conference: participant joined",
 				"room", s.cfg.Room, "channel", p.Channel, "caller_id", p.CallerIDNum)
@@ -427,60 +423,11 @@ func (s *Service) handleEvent(msg *ami.Message) {
 	}
 }
 
-// handleOriginateResponse reports how an invite ended. The call itself shows
-// up in the roster through ConfbridgeJoin; this exists so that a failed invite
-// leaves a diagnosable trace instead of silence.
-func (s *Service) handleOriginateResponse(msg *ami.Message) {
-	id := msg.ActionID()
-
-	s.mu.Lock()
-	inv, ok := s.invites[id]
-	delete(s.invites, id)
-	s.mu.Unlock()
-
-	if !ok {
-		return // somebody else's Originate, or one we already reported on
-	}
-
-	if msg.IsSuccess() {
-		s.log.Info("conference: invite answered",
-			"number", inv.number, "channel", msg.Get("Channel"), "action_id", id)
-		return
-	}
-	s.log.Warn("conference: invite failed",
-		"number", inv.number,
-		"reason", msg.Get("Reason"),
-		"response", msg.Get("Response"),
-		"action_id", id)
-}
-
 // resync rebuilds the roster, logging rather than propagating failures: it
 // runs on a timer and on reconnect, where there is nobody to return an error to.
 func (s *Service) resync(ctx context.Context) {
 	if _, err := s.List(ctx); err != nil {
 		s.log.Warn("conference: roster resync failed", "room", s.cfg.Room, "error", err)
-	}
-}
-
-// pruneInvites forgets Originates whose OriginateResponse never arrived, so a
-// long-running process cannot accumulate them.
-func (s *Service) pruneInvites() {
-	// Twice the dial timeout, floored at a minute, is long enough that a live
-	// invite is never dropped early.
-	ttl := 2 * s.cfg.OriginateTimeout
-	if ttl < time.Minute {
-		ttl = time.Minute
-	}
-	cutoff := time.Now().Add(-ttl)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for id, inv := range s.invites {
-		if inv.at.Before(cutoff) {
-			s.log.Warn("conference: invite outcome never reported",
-				"number", inv.number, "action_id", id)
-			delete(s.invites, id)
-		}
 	}
 }
 

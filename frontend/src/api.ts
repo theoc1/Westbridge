@@ -80,3 +80,16 @@ export function kickParticipant(uniqueid: string): Promise<void> {
     { method: 'DELETE', headers: { 'Content-Type': 'application/json' } },
   )
 }
+
+
+export function cancelCall(id: string): Promise<void> {
+  return request<void>(`/api/conference/calls/${encodeURIComponent(id)}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+export function retryCall(id: string): Promise<AddParticipantResponse> {
+  return request<AddParticipantResponse>(`/api/conference/calls/${encodeURIComponent(id)}/retry`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  })
+}

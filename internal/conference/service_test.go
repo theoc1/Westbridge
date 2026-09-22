@@ -411,7 +411,7 @@ func TestServiceInvite(t *testing.T) {
 	select {
 	case action := <-originates:
 		want := map[string]string{
-			"Channel":     "Local/+79991234567@conference-out",
+			"Channel":     "Local/+79991234567@conference-out/n",
 			"Application": "ConfBridge",
 			"Data":        testRoom,
 			"CallerID":    "Westbridge <0000>",
@@ -419,8 +419,10 @@ func TestServiceInvite(t *testing.T) {
 			"Timeout": "20000",
 			// A synchronous Originate would block the single AMI connection
 			// for the whole dial timeout.
-			"Async":    "true",
-			"ActionID": actionID,
+			"Async":          "true",
+			"ActionID":       actionID,
+			"ChannelId":      actionID,
+			"OtherChannelId": actionID + "-dial",
 		}
 		for key, wantValue := range want {
 			if got := action.Get(key); got != wantValue {

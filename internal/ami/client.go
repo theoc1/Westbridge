@@ -289,7 +289,7 @@ func (c *Client) login(sess *session, dec *Decoder) error {
 func (c *Client) route(sess *session, msg *Message) {
 	msg.Sequence = c.received.Add(1)
 	if id := msg.ActionID(); id != "" {
-		if p := sess.lookup(id); p != nil {
+		if p := sess.lookup(id); p != nil && (!msg.IsEvent() || p.list) {
 			select {
 			case p.ch <- msg:
 			case <-p.done: // the caller gave up; nothing left to deliver to
@@ -353,6 +353,7 @@ func (c *Client) do(ctx context.Context, msg *Message, completeEvent string) (*M
 	}
 
 	p := newPending()
+	p.list = completeEvent != ""
 	if !sess.register(id, p) {
 		return nil, nil, ErrDisconnected
 	}
@@ -551,6 +552,8 @@ func (s *session) close() {
 // pending is one action waiting for its reply. done is closed when the caller
 // walks away, so the reader never blocks handing a message to a dead waiter.
 type pending struct {
+	// Only list actions consume events; async outcomes belong on Events().
+	list bool
 	ch   chan *Message
 	done chan struct{}
 

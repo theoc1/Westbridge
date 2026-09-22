@@ -1,9 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { addParticipant } from '../api.ts'
-import { dialHasJoined } from '../dialStatus.ts'
-import type { DialAttempt } from '../dialStatus.ts'
-import type { Participant } from '../types.ts'
 import { useAsyncAction } from '../useConference.ts'
 
 /**
@@ -31,20 +28,12 @@ interface AddParticipantFormProps {
   /** Dialling is pointless with no AMI link; the form says so instead of
    * letting the request fail with a 503. */
   disabled: boolean
-  participants: Participant[]
 }
 
-export function AddParticipantForm({ disabled, participants }: AddParticipantFormProps) {
+export function AddParticipantForm({ disabled }: AddParticipantFormProps) {
   const [number, setNumber] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
-  const [dialing, setDialing] = useState<DialAttempt | null>(null)
   const { pending, error, clearError, run } = useAsyncAction()
-
-  // Clear the stored attempt, rather than merely hiding the message, so it
-  // cannot reappear when that participant subsequently leaves the room.
-  if (dialing !== null && (disabled || dialHasJoined(dialing, participants))) {
-    setDialing(null)
-  }
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -55,14 +44,8 @@ export function AddParticipantForm({ disabled, participants }: AddParticipantFor
     }
     clearError()
     const dialed = number.trim()
-    const existingIds = participants.map(participant => participant.uniqueid)
-    setDialing(null)
     const ok = await run(() => addParticipant(dialed))
     if (ok) {
-      // 202 only means Asterisk took the call. Say that rather than implying
-      // the callee is already in the room; they show up in the roster if they
-      // answer.
-      setDialing({ number: dialed, existingIds })
       setNumber('')
     }
   }
@@ -85,7 +68,6 @@ export function AddParticipantForm({ disabled, participants }: AddParticipantFor
           onChange={(event) => {
             setNumber(event.target.value)
             setLocalError(null)
-            setDialing(null)
           }}
         />
         <button type="submit" className="button" disabled={disabled || pending}>
@@ -95,11 +77,6 @@ export function AddParticipantForm({ disabled, participants }: AddParticipantFor
       {message !== null && (
         <p className="add-form-error" role="alert">
           {message}
-        </p>
-      )}
-      {message === null && dialing !== null && (
-        <p className="add-form-note" role="status">
-          Calling {dialing.number}. They join the conference once they answer.
         </p>
       )}
       {disabled && (

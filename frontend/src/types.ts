@@ -12,11 +12,21 @@ export interface Participant {
   joinedAt?: string
 }
 
+export interface OutgoingCall {
+  id: string
+  number: string
+  state: 'dialing' | 'failed'
+  reason?: string
+  createdAt: string
+  cancelling?: boolean
+}
+
 export interface Snapshot {
   room: string
   /** False while the backend has no working AMI link; the roster is stale. */
   asteriskConnected: boolean
   participants: Participant[]
+  calls: OutgoingCall[]
 }
 
 /**

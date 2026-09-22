@@ -12,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/dmalkin/westbridge/internal/auth"
+	"github.com/dmalkin/westbridge/internal/conference"
 	"github.com/dmalkin/westbridge/internal/web"
 )
 
@@ -175,5 +176,32 @@ func TestAdminUpdatesRevokeAccess(t *testing.T) {
 	rec = authRequest(srv, "GET", "/api/auth/me", "", admin, "")
 	if rec.Code != 200 {
 		t.Fatal("failed edit revoked admin", rec.Code)
+	}
+}
+
+func TestCallOperationsRequireSession(t *testing.T) {
+	svc := newFakeConference()
+	srv := newServer(t, svc, nil)
+	for _, tc := range []struct{ method, path string }{{"DELETE", "/api/conference/calls/test-call"}, {"POST", "/api/conference/calls/test-call/retry"}} {
+		if rec := authRequest(srv, tc.method, tc.path, `{}`, nil, ""); rec.Code != 401 {
+			t.Fatal(tc, rec.Code)
+		}
+	}
+	cookie := loginCookie(t, srv, "tester", "test-password-123")
+	if rec := authRequest(srv, "DELETE", "/api/conference/calls/test-call", `{}`, cookie, ""); rec.Code != 204 {
+		t.Fatal(rec.Code)
+	}
+	if rec := authRequest(srv, "POST", "/api/conference/calls/test-call/retry", `{}`, cookie, ""); rec.Code != 202 {
+		t.Fatal(rec.Code)
+	}
+	svc.mu.Lock()
+	svc.kickErr = conference.ErrCallNotFound
+	svc.inviteErr = conference.ErrCallState
+	svc.mu.Unlock()
+	if rec := authRequest(srv, "DELETE", "/api/conference/calls/test-call", `{}`, cookie, ""); rec.Code != 404 {
+		t.Fatal(rec.Code)
+	}
+	if rec := authRequest(srv, "POST", "/api/conference/calls/test-call/retry", `{}`, cookie, ""); rec.Code != 409 {
+		t.Fatal(rec.Code)
 	}
 }
