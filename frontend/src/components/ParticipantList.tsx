@@ -1,3 +1,4 @@
+import { contactNumber } from '../phonebook.ts'
 import { formatDuration } from '../duration.ts'
 import { useEffect, useState } from 'react'
 import { cancelCall, retryCall, kickParticipant } from '../api.ts'
@@ -29,6 +30,7 @@ function displayName(p: Participant): string {
 }
 
 interface ParticipantListProps {
+  contactNames: Map<string, string>
   participants: Participant[]
   calls: OutgoingCall[]
   socketConnected: boolean
@@ -36,7 +38,7 @@ interface ParticipantListProps {
   stale: boolean
 }
 
-export function ParticipantList({ participants, calls, stale, socketConnected }: ParticipantListProps) {
+export function ParticipantList({ participants, calls, stale, socketConnected, contactNames }: ParticipantListProps) {
   const now = useNow()
 
   if (participants.length === 0 && calls.length === 0) {
@@ -49,7 +51,7 @@ export function ParticipantList({ participants, calls, stale, socketConnected }:
 
   return (
     <ul className={`roster${stale ? ' roster-stale' : ''}`} aria-label="Calls and participants">
-      {calls.map(call => <CallRow key={call.id} call={call} stale={stale} socketConnected={socketConnected} duration={formatDuration(call.createdAt, now)} />)}
+      {calls.map(call => <CallRow key={call.id} name={contactNames.get(contactNumber(call.number))} call={call} stale={stale} socketConnected={socketConnected} duration={formatDuration(call.createdAt, now)} />)}
       {participants.map((participant) => (
         <ParticipantRow
           key={participant.uniqueid}
@@ -147,7 +149,8 @@ function ParticipantRow({ participant, disabled, duration }: ParticipantRowProps
 }
 
 
-function CallRow({ call, stale, socketConnected, duration }: {
+function CallRow({ call, stale, socketConnected, duration, name }: {
+  name?: string;
   call: OutgoingCall; stale: boolean; socketConnected: boolean; duration: string
 }) {
   const { pending, error, run } = useAsyncAction()
@@ -155,7 +158,8 @@ function CallRow({ call, stale, socketConnected, duration }: {
   return <li className={`roster-row participant-row ${failed ? 'call-failed' : 'call-dialing'}`}>
     <div className="roster-identity">
       <div className="participant-heading">
-        <span className="roster-name">{call.number}</span>
+        <span className="roster-name">{name || call.number}</span>
+        {name && <span className="roster-number">{call.number}</span>}
         <span className="call-state">{failed ? (call.reason || 'Connection failed') : call.cancelling ? 'Cancelling…' : (call.reason || 'Dialling…')}</span>
       </div>
       {error && <span role="alert" className="roster-error">{error}</span>}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { ApiError, request } from './api.ts'
 import { useAsyncAction } from './useConference.ts'
@@ -55,7 +55,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       }}>Sign out</button>
       {error && <span role="alert" className="add-form-error">{error}</span>}
     </header>
-    {admin && user.role === 'admin' ? <UserAdmin currentUser={user} /> : children}
+    {admin && user.role === 'admin' ? <UserAdmin currentUser={user} /> : <Fragment key={user.id}>{children}</Fragment>}
   </>
 }
 

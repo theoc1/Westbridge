@@ -362,3 +362,23 @@ body {
 .call-failed { background: var(--call-failed-bg); border-color: var(--call-failed-border); }
 .call-state { font-size: .75rem; color: var(--text-muted); }
 .call-dialing .participant-heading, .call-failed .participant-heading { flex-wrap: wrap; }
+
+/* Personal phonebook beside the shared conference. */
+.conference-app, .account-bar { max-width: 76rem; }
+.conference-layout { display: grid; grid-template-columns: minmax(18rem, 23rem) minmax(0, 1fr); align-items: start; gap: 1.25rem; }
+.conference-panel, .phonebook { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
+.phonebook { padding: .8rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.phonebook-heading, .phonebook-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.phonebook h2, .phonebook h3 { margin: 0; font-size: 1rem; }
+.phonebook label { font-size: .85rem; }
+.phonebook .button { padding: .3rem .5rem; font-size: .8rem; }
+.phonebook .empty-state { font-size: .85rem; padding: 1rem .5rem; }
+.contact-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.contact-row { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; padding: .65rem 0; border-top: 1px solid var(--border); }
+.contact-identity { display: flex; align-items: center; gap: .45rem; flex: 1; min-width: 0; cursor: pointer; }
+.contact-identity > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.contact-identity strong { font-weight: 500; }
+.contact-actions { display: flex; gap: .25rem; }
+.contact-row > .roster-error { width: 100%; }
+.phonebook input[type=checkbox] { accent-color: var(--accent); flex-shrink: 0; }
+@media (max-width: 52rem) { .conference-layout { grid-template-columns: minmax(0, 1fr); } }

@@ -1,4 +1,4 @@
-// Package auth persists users and revocable sessions in SQLite.
+// Package auth persists users, revocable sessions and personal contacts in SQLite.
 package auth
 
 import (
@@ -42,7 +42,7 @@ type User struct {
 	Enabled bool   `json:"enabled"`
 }
 
-// Store owns the users and sessions database.
+// Store owns the users, sessions and contacts database.
 type Store struct{ db *sql.DB }
 
 // Open initializes or opens the persistent database; :memory: is useful in tests.
@@ -76,7 +76,10 @@ func Open(filename string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS sessions (
  token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  expires_at INTEGER NOT NULL);
- CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);`)
+ CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+ CREATE TABLE IF NOT EXISTS contacts (
+ id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ name TEXT NOT NULL, number TEXT NOT NULL, UNIQUE(user_id, number));`)
 	if err != nil {
 		_ = db.Close()
 		return nil, err

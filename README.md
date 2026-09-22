@@ -136,7 +136,7 @@ All configuration comes from the environment.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `WB_LISTEN` | `:8080` | HTTP listen address |
-| `WB_DB_PATH` | `data/westbridge.db` | SQLite users/session file, relative to the working directory |
+| `WB_DB_PATH` | `data/westbridge.db` | SQLite users, sessions and contacts file, relative to the working directory |
 | `WB_COOKIE_SECURE` | `true` | HTTPS-only cookies; set `false` for local HTTP development |
 | `WB_AMI_ADDR` | `127.0.0.1:5038` | Asterisk AMI address |
 | `WB_AMI_USER` | — | AMI username (**required**) |
@@ -162,7 +162,7 @@ Sign in, then open **Users** to create accounts, change roles, reset passwords o
 disable users. Both roles can view, invite and kick conference participants; only
 administrators can manage accounts. The last active administrator cannot be disabled
 or demoted. Disabling an account keeps its stable ID for future user-owned settings.
-User settings and a phonebook are not part of this iteration.
+User settings are not part of this iteration.
 
 Authentication uses opaque, cryptographically random session tokens in **HttpOnly,
 SameSite=Strict** cookies. Tokens are stored only as SHA-256 hashes in SQLite;
@@ -176,7 +176,7 @@ Serve production behind **HTTPS**, leaving `WB_COOKIE_SECURE=true`. For local HT
 on loopback, use `WB_COOKIE_SECURE=false` (already set in `deploy/.env.example`).
 Keep the SQLite file in a persistent writable directory and include it in backups;
 the application creates it with owner-only permissions. The file contains users,
-password hashes and sessions, and is ignored by Git under `data/`.
+password hashes, sessions and personal contacts, and is ignored by Git under `data/`.
 
 All conference API routes and `/ws` require a session. Mutating API calls require
 `Content-Type: application/json` and reject foreign browser origins; `WB_ALLOWED_ORIGINS`
@@ -187,6 +187,21 @@ a reverse proxy this limit applies to the proxy IP; forwarded IP headers are not
 The AMI user needs `read = system,call,reporting` and `write = system,call,originate,reporting`;
 see `deploy/asterisk/manager.conf` for a working example.
 
+### Personal phonebook
+
+Each user has a private phonebook stored in the same SQLite database, including
+administrators. The panel appears to the left of the conference (above it on narrow
+screens). Add, edit or delete a name and number, select contacts and use **Call selected**
+to enqueue calls into the current shared conference without waiting for answers.
+Accepted entries are deselected; request failures remain selected with an error.
+Call outcomes appear in the conference's colored rows as usual.
+
+Names from your book override the displayed caller name for matching numbers,
+including outgoing attempts. These labels stay personal; the shared conference
+snapshot never contains another user's contact book. Formatted numbers are normalized,
+and a number can appear only once per user's book. Contacts survive server restarts.
+Other tabs reload the book on focus. Deleting a contact does not end its active call.
+
 ### HTTP API
 
 ```
@@ -196,6 +211,10 @@ POST   /api/auth/logout                        -> 204, revokes session
 GET    /api/users                              -> users (admin only)
 POST   /api/users                              body {"login":"...","password":"...","role":"user"} -> 201 (admin)
 PATCH  /api/users/{id}                          body {"role":"user","enabled":false,"password":"..."} (all fields optional, admin)
+GET    /api/contacts                           -> current user's [{"id":1,"name":"Alice","number":"1002"}]
+POST   /api/contacts                           body {"name":"Alice","number":"1002"} -> 201
+PUT    /api/contacts/{id}                       body {"name":"Alice","number":"1003"} -> 200
+DELETE /api/contacts/{id}                       -> 204 (owner only, including admins)
 GET    /api/conference                         -> 200 {"room":"1000","asteriskConnected":true,"participants":[...],"calls":[...]}
 POST   /api/conference/participants            body {"number":"1002"} -> 202 {"actionId":"..."}
 DELETE /api/conference/participants/{uniqueid} -> 204

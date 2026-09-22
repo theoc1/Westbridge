@@ -26,9 +26,7 @@ import (
 	"github.com/dmalkin/westbridge/internal/web/assets"
 )
 
-// maxRequestBody caps a request body. The only body the API accepts is a
-// object with a phone number in it, so anything larger is a mistake or an
-// attack.
+// maxRequestBody bounds the small JSON objects used by commands and forms.
 const maxRequestBody = 4 << 10
 
 // Conference is the slice of *conference.Service the HTTP layer needs.
@@ -155,6 +153,8 @@ func (s *Server) routes(frontend http.Handler) http.Handler {
 	s.handleMethod(mux, http.MethodPost, "/api/auth/login", s.handleLogin)
 	s.handleMethod(mux, http.MethodGet, "/api/auth/me", s.handleMe)
 	s.handleMethod(mux, http.MethodPost, "/api/auth/logout", s.handleLogout)
+	mux.HandleFunc("/api/contacts", s.handleContacts)
+	mux.HandleFunc("/api/contacts/{id}", s.handleContact)
 	mux.HandleFunc("/api/users", s.handleUsers)
 	s.handleMethod(mux, http.MethodPatch, "/api/users/{id}", s.handleUpdateUser)
 
