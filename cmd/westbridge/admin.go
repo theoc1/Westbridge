@@ -16,7 +16,7 @@ func adminCommand(args []string) error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return errors.New("run bootstrap-admin in a terminal to enter the password securely")
 	}
-	fmt.Fprint(os.Stderr, "Password (at least 12 characters): ")
+	fmt.Fprint(os.Stderr, "Password (at least 3 characters): ")
 	password, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr)
 	if err != nil {

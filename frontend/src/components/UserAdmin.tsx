@@ -49,8 +49,8 @@ function CreateUser({ onSaved }: { onSaved: () => Promise<void> }) {
     <h2>Add user</h2>
     <label htmlFor="new-login">Login</label>
     <input className="add-form-input" id="new-login" required maxLength={64} autoComplete="off" value={login} onChange={e => setLogin(e.target.value)} disabled={pending} />
-    <label htmlFor="new-password">Password (at least 12 characters)</label>
-    <input className="add-form-input" id="new-password" type="password" required minLength={12} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} disabled={pending} />
+    <label htmlFor="new-password">Password (at least 3 characters)</label>
+    <input className="add-form-input" id="new-password" type="password" required minLength={3} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} disabled={pending} />
     <label htmlFor="new-role">Role</label>
     <select className="add-form-input" id="new-role" value={role} onChange={e => setRole(e.target.value)} disabled={pending}><option value="user">User</option><option value="admin">Administrator</option></select>
     <button className="button" disabled={pending}>{pending ? 'Creating…' : 'Create user'}</button>
@@ -82,7 +82,7 @@ function UserRow({ user, self, onSaved }: { user: User; self: boolean; onSaved: 
       <select className="add-form-input" id={`role-${user.id}`} value={role} onChange={e => setRole(e.target.value as User['role'])} disabled={pending}><option value="user">User</option><option value="admin">Administrator</option></select>
       <label><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} disabled={pending} /> Active</label>
       <label htmlFor={`password-${user.id}`}>New password (leave empty to keep)</label>
-      <input className="add-form-input" type="password" id={`password-${user.id}`} autoComplete="new-password" minLength={12} value={password} onChange={e => setPassword(e.target.value)} disabled={pending} />
+      <input className="add-form-input" type="password" id={`password-${user.id}`} autoComplete="new-password" minLength={3} value={password} onChange={e => setPassword(e.target.value)} disabled={pending} />
       <p className="add-form-note">Saving changes signs this user out of all sessions.{self ? ' You will need to sign in again.' : ''}</p>
       <div className="add-form-row"><button className="button" disabled={pending}>Save changes</button><button type="button" className="button button-quiet" disabled={pending} onClick={() => { setEditing(false); setPassword('') }}>Cancel</button></div>
       {error && <p className="add-form-error" role="alert">{error}</p>}

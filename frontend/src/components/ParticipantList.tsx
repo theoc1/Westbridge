@@ -23,7 +23,7 @@ function displayName(p: Participant): string {
   // verbatim is worse than showing nothing.
   const name = p.callerIdName.trim()
   if (name === '' || name === '<unknown>' || name === 'unknown') {
-    return p.callerIdNum.trim() === '' ? p.channel : p.callerIdNum
+    return 'Unknown participant'
   }
   return name
 }
@@ -40,7 +40,7 @@ export function ParticipantList({ participants, stale }: ParticipantListProps) {
   if (participants.length === 0) {
     return (
       <p className="empty-state">
-        Nobody is in the conference yet. Dial in, or add a participant below.
+        Nobody is in the conference yet. Dial in, or call a number above.
       </p>
     )
   }
@@ -82,13 +82,12 @@ function ParticipantRow({ participant, disabled, duration }: ParticipantRowProps
   }
 
   return (
-    <li className="roster-row">
+    <li className="roster-row participant-row">
       <div className="roster-identity">
-        <span className="roster-name">{displayName(participant)}</span>
-        <span className="roster-number">{participant.callerIdNum || '—'}</span>
-        <span className="roster-channel" title={participant.channel}>
-          {participant.channel}
-        </span>
+        <div className="participant-heading">
+          <span className="roster-name">{displayName(participant)}</span>
+          <span className="roster-number">{participant.callerIdNum || '—'}</span>
+        </div>
         {error !== null && (
           <span className="roster-error" role="alert">
             {error}

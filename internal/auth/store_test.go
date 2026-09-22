@@ -95,7 +95,7 @@ func TestSessionExpiryLogoutAndValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if _, err = s.Bootstrap("admin", "short"); !errors.Is(err, ErrInvalid) {
+	if _, err = s.Bootstrap("admin", "ab"); !errors.Is(err, ErrInvalid) {
 		t.Fatal(err)
 	}
 	if _, err = s.Bootstrap("admin", "long-password-123"); err != nil {
@@ -124,6 +124,35 @@ func TestSessionExpiryLogoutAndValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = s.Authenticate(token); !errors.Is(err, ErrSession) {
+		t.Fatal(err)
+	}
+}
+
+func TestThreeCharacterPasswords(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err = s.Bootstrap("admin", "abc"); err != nil {
+		t.Fatal(err)
+	}
+	user, err := s.CreateUser("user", "абв", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = s.Login("user", "абв"); err != nil {
+		t.Fatal(err)
+	}
+	short := "аб"
+	if _, err = s.UpdateUser(user.ID, Update{Password: &short}); !errors.Is(err, ErrInvalid) {
+		t.Fatal("two-character password accepted", err)
+	}
+	password := "xyz"
+	if _, err = s.UpdateUser(user.ID, Update{Password: &password}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = s.Login("user", password); err != nil {
 		t.Fatal(err)
 	}
 }

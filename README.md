@@ -155,7 +155,7 @@ Missing required variables are reported together and the process exits non-zero.
 Run `.bin/westbridge bootstrap-admin admin` from the same working directory and
 with the same `WB_DB_PATH` as the server. It prompts twice for a password without
 showing it and only works on an empty user database. There are no default credentials.
-Passwords must have at least 12 characters (at most 1024 UTF-8 bytes). Logins are
+Passwords must have at least 3 characters (at most 1024 UTF-8 bytes). Logins are
 case insensitive and accept ASCII letters, digits, dots, underscores and hyphens.
 
 Sign in, then open **Users** to create accounts, change roles, reset passwords or

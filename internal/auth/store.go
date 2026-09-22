@@ -98,8 +98,8 @@ func validate(login, role, password string) error {
 	if role != "admin" && role != "user" {
 		return fmt.Errorf("%w: role must be admin or user", ErrInvalid)
 	}
-	if utf8.RuneCountInString(password) < 12 || len(password) > 1024 {
-		return fmt.Errorf("%w: password must be at least 12 characters and at most 1024 bytes", ErrInvalid)
+	if utf8.RuneCountInString(password) < 3 || len(password) > 1024 {
+		return fmt.Errorf("%w: password must be at least 3 characters and at most 1024 bytes", ErrInvalid)
 	}
 	return nil
 }

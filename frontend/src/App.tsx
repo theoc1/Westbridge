@@ -38,8 +38,8 @@ function Conference() {
                 : 'Disconnected from the server. Reconnecting…'}
             </p>
           )}
+          <AddParticipantForm disabled={stale} participants={snapshot.participants} />
           <ParticipantList participants={snapshot.participants} stale={stale} />
-          <AddParticipantForm disabled={stale} />
         </>
       )}
     </main>

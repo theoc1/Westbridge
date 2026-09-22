@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { addParticipant } from '../api.ts'
+import { dialHasJoined } from '../dialStatus.ts'
+import type { DialAttempt } from '../dialStatus.ts'
+import type { Participant } from '../types.ts'
 import { useAsyncAction } from '../useConference.ts'
 
 /**
@@ -28,13 +31,20 @@ interface AddParticipantFormProps {
   /** Dialling is pointless with no AMI link; the form says so instead of
    * letting the request fail with a 503. */
   disabled: boolean
+  participants: Participant[]
 }
 
-export function AddParticipantForm({ disabled }: AddParticipantFormProps) {
+export function AddParticipantForm({ disabled, participants }: AddParticipantFormProps) {
   const [number, setNumber] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
-  const [dialing, setDialing] = useState<string | null>(null)
+  const [dialing, setDialing] = useState<DialAttempt | null>(null)
   const { pending, error, clearError, run } = useAsyncAction()
+
+  // Clear the stored attempt, rather than merely hiding the message, so it
+  // cannot reappear when that participant subsequently leaves the room.
+  if (dialing !== null && (disabled || dialHasJoined(dialing, participants))) {
+    setDialing(null)
+  }
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -45,12 +55,14 @@ export function AddParticipantForm({ disabled }: AddParticipantFormProps) {
     }
     clearError()
     const dialed = number.trim()
+    const existingIds = participants.map(participant => participant.uniqueid)
+    setDialing(null)
     const ok = await run(() => addParticipant(dialed))
     if (ok) {
       // 202 only means Asterisk took the call. Say that rather than implying
       // the callee is already in the room; they show up in the roster if they
       // answer.
-      setDialing(dialed)
+      setDialing({ number: dialed, existingIds })
       setNumber('')
     }
   }
@@ -58,13 +70,11 @@ export function AddParticipantForm({ disabled }: AddParticipantFormProps) {
   const message = localError ?? error
 
   return (
-    <form className="add-form" onSubmit={onSubmit} noValidate>
-      <label className="add-form-label" htmlFor="number">
-        Add a participant
-      </label>
+    <form className="add-form dial-form" onSubmit={onSubmit} noValidate>
       <div className="add-form-row">
         <input
           id="number"
+          aria-label="Phone number"
           className="add-form-input"
           type="tel"
           inputMode="tel"
@@ -89,7 +99,7 @@ export function AddParticipantForm({ disabled }: AddParticipantFormProps) {
       )}
       {message === null && dialing !== null && (
         <p className="add-form-note" role="status">
-          Calling {dialing}. They join the conference once they answer.
+          Calling {dialing.number}. They join the conference once they answer.
         </p>
       )}
       {disabled && (
