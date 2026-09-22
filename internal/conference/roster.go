@@ -145,3 +145,16 @@ func (r *Roster) resolveJoinedAt(p, prev Participant, existed bool) time.Time {
 		return time.Time{}
 	}
 }
+
+// SetMuted updates only an existing participant, without recreating departed calls.
+func (r *Roster) SetMuted(id string, muted bool) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p, ok := r.m[id]
+	if !ok || p.Muted == muted {
+		return false
+	}
+	p.Muted = muted
+	r.m[id] = p
+	return true
+}

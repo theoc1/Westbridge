@@ -25,6 +25,8 @@ import (
 // to be shown that it calls the right method with the right arguments and maps
 // the result onto the right status code.
 type fakeConference struct {
+	muteID    string
+	muteValue bool
 	mu        sync.Mutex
 	snap      conference.Snapshot
 	subs      map[int]func(conference.Snapshot)
@@ -633,4 +635,11 @@ func (f *fakeConference) CancelCall(_ context.Context, id string) error {
 }
 func (f *fakeConference) RetryCall(ctx context.Context, id string) (string, error) {
 	return f.Invite(ctx, id)
+}
+
+func (f *fakeConference) SetMuted(_ context.Context, id string, muted bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.muteID, f.muteValue = id, muted
+	return f.kickErr
 }

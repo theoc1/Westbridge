@@ -1,7 +1,7 @@
 import { contactNumber } from '../phonebook.ts'
 import { formatDuration } from '../duration.ts'
 import { useEffect, useState } from 'react'
-import { cancelCall, retryCall, kickParticipant } from '../api.ts'
+import { cancelCall, retryCall, kickParticipant, setParticipantMuted } from '../api.ts'
 import type { Participant, OutgoingCall } from '../types.ts'
 import { useAsyncAction } from '../useConference.ts'
 
@@ -110,6 +110,12 @@ function ParticipantRow({ participant, disabled, duration }: ParticipantRowProps
       </div>
 
       <div className="roster-actions">
+        <button type="button" className="button button-quiet" disabled={pending || disabled}
+          aria-pressed={participant.muted}
+          title={participant.muted ? 'Let this participant speak' : 'Mute this participant’s microphone; they can still hear the conference'}
+          onClick={() => { void run(() => setParticipantMuted(participant.uniqueid, !participant.muted)) }}>
+          {participant.muted ? 'Unmute' : 'Mute'}
+        </button>
         {confirming ? (
           <>
             <button

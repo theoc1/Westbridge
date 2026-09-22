@@ -34,6 +34,7 @@ type Conference interface {
 	Snapshot() conference.Snapshot
 	Subscribe(fn func(conference.Snapshot)) func()
 	Kick(ctx context.Context, uniqueID string) error
+	SetMuted(ctx context.Context, uniqueID string, muted bool) error
 	Invite(ctx context.Context, number string) (string, error)
 	CancelCall(ctx context.Context, id string) error
 	RetryCall(ctx context.Context, id string) (string, error)
@@ -161,6 +162,7 @@ func (s *Server) routes(frontend http.Handler) http.Handler {
 	s.handleMethod(mux, http.MethodGet, "/api/conference", s.handleGetConference)
 	s.handleMethod(mux, http.MethodPost, "/api/conference/participants", s.handleAddParticipant)
 	s.handleMethod(mux, http.MethodDelete, "/api/conference/participants/{uniqueid}", s.handleKickParticipant)
+	s.handleMethod(mux, http.MethodPut, "/api/conference/participants/{uniqueid}/mute", s.handleMuteParticipant)
 	s.handleMethod(mux, http.MethodGet, "/ws", s.handleWebSocket)
 	s.handleMethod(mux, http.MethodDelete, "/api/conference/calls/{id}", s.handleCancelCall)
 	s.handleMethod(mux, http.MethodPost, "/api/conference/calls/{id}/retry", s.handleRetryCall)

@@ -218,6 +218,7 @@ DELETE /api/contacts/{id}                       -> 204 (owner only, including ad
 GET    /api/conference                         -> 200 {"room":"1000","asteriskConnected":true,"participants":[...],"calls":[...]}
 POST   /api/conference/participants            body {"number":"1002"} -> 202 {"actionId":"..."}
 DELETE /api/conference/participants/{uniqueid} -> 204
+PUT    /api/conference/participants/{uniqueid}/mute body {"muted":true} -> 204 (false to unmute)
 DELETE /api/conference/calls/{id}               -> 204 (cancel a dial or remove a failed row)
 POST   /api/conference/calls/{id}/retry          -> 202 {"actionId":"..."}
 GET    /ws                                     -> WebSocket, server -> client only
@@ -321,3 +322,7 @@ frontend/                  React + Vite + TypeScript sources
 deploy/                    docker-compose stand + Asterisk configs
 docs/plans/                the implementation plan and the research behind it
 ```
+
+Connected participants have **Mute / Unmute** controls. Muting blocks their microphone
+inside ConfBridge while allowing them to hear the conference. The state is shared
+with all users, updated from AMI events and recovered by roster synchronization.

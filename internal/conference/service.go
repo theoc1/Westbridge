@@ -377,7 +377,9 @@ func (s *Service) handleEvent(msg *ami.Message) {
 	case strings.EqualFold(name, eventConfbridgeJoin),
 		strings.EqualFold(name, eventConfbridgeLeave),
 		strings.EqualFold(name, eventConfbridgeStart),
-		strings.EqualFold(name, eventConfbridgeEnd):
+		strings.EqualFold(name, eventConfbridgeEnd),
+		strings.EqualFold(name, "ConfbridgeMute"),
+		strings.EqualFold(name, "ConfbridgeUnmute"):
 	default:
 		return
 	}
@@ -387,6 +389,10 @@ func (s *Service) handleEvent(msg *ami.Message) {
 	}
 
 	switch {
+	case strings.EqualFold(name, "ConfbridgeMute"), strings.EqualFold(name, "ConfbridgeUnmute"):
+		if s.roster.SetMuted(msg.Get("Uniqueid"), strings.EqualFold(name, "ConfbridgeMute")) {
+			s.notify()
+		}
 	case strings.EqualFold(name, eventConfbridgeJoin):
 		p, ok := participantFrom(msg)
 		if !ok {

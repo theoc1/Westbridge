@@ -93,3 +93,9 @@ export function retryCall(id: string): Promise<AddParticipantResponse> {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
   })
 }
+
+export function setParticipantMuted(uniqueid: string, muted: boolean): Promise<void> {
+  return request<void>(`/api/conference/participants/${encodeURIComponent(uniqueid)}/mute`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ muted }),
+  })
+}
