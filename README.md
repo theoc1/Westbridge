@@ -1,341 +1,289 @@
 # Westbridge
 
-Web control panel for a single Asterisk **ConfBridge** audio conference. Three things,
-deliberately no more:
+A web control panel for an **Asterisk ConfBridge** audio conference: invite
+participants, control microphones, and manage personal phonebooks in one place.
 
-- a **live participant list** that updates as calls join and leave;
-- **kick** a participant;
-- **add** participants by dialing multiple numbers, with per-call cancellation and retry.
+The backend is written in Go, with a React and TypeScript frontend. The application
+ships as a single executable with the frontend embedded. Users, sessions, and
+contacts are stored in SQLite. Calls require a separate SIP client or phone.
 
-The whole application ships as one Go binary with the React frontend embedded in it.
-Users and revocable sessions are stored in a local SQLite file; no separate database server is needed.
+## Features
 
-```
-browser  --HTTP/JSON--> Go backend --AMI TCP 5038--> Asterisk
-        <--WebSocket---            (single connection)
-```
+- A shared conference with a live participant list.
+- Multiple simultaneous outgoing calls, with cancellation, retry, and status
+  indicators for busy, unanswered, and failed calls.
+- **Mute / Unmute**, participant removal (**Kick**), and a speaking indicator.
+- Personal phonebooks with contact creation, editing, deletion, selection, and
+  group calling. Contact names appear in the owner's participant list.
+- Username and password authentication, user and administrator roles, and a
+  user management interface.
+- Compact, independently scrollable lists and visible Asterisk connection status.
 
-## How it talks to Asterisk
+## Quick Start
 
-The backend holds exactly **one** persistent AMI TCP connection and uses it for both the
-event stream and the commands:
+Run Westbridge locally with Asterisk in Docker. Execute the commands from the
+repository root using `bash` or `zsh`.
 
-| Purpose | AMI |
-| --- | --- |
-| Live roster | events `ConfbridgeJoin`, `ConfbridgeLeave`, `ConfbridgeStart`, `ConfbridgeEnd` |
-| Snapshot / resync | action `ConfbridgeList` |
-| Kick | action `ConfbridgeKick` |
-| Add a participant | action `Originate` (`Async: true`) |
+### Requirements
 
-The WebSocket in this app lives between the **browser and this backend**, not between the
-backend and Asterisk. It is one-way, server to browser, and carries state only; commands
-travel over ordinary REST. Every state change broadcasts a *full* snapshot — a conference
-holds tens of participants at most, so a snapshot is a few hundred bytes and an entire
-class of desync bugs simply cannot occur.
+- **Go 1.27+**, as specified in `go.mod`.
+- **Node.js 24+**, npm, and make to build the frontend.
+- **Docker with Compose** for the local Asterisk stand.
+- A SIP client to test calls.
 
-### Why not AMI over WebSocket
-
-The original idea was to reach Asterisk over a WebSocket to avoid keeping two interfaces
-open. **Asterisk does not support this.** Checked against `asterisk/asterisk` master:
-
-- `main/manager.c` contains **zero** references to websocket, and there is no
-  `res_ami_websocket` module in the tree. The only WebSocket modules are
-  `res_http_websocket`, `res_websocket_client`, `res_pjsip_transport_websocket` and
-  `chan_websocket` (media).
-- AMI therefore has exactly two transports: raw TCP/TLS on 5038, and AMI-over-HTTP
-  (`/manager`, `/rawman`, `/mxml`) when `manager.conf` sets `webenabled=yes`. The HTTP
-  variant delivers events by long-poll (`/rawman?action=waitevent`), not by WebSocket.
-- WebSocket in Asterisk exists only for ARI events, WebRTC signalling and `chan_websocket`.
-
-The obvious alternative, ARI (which *does* have a real event WebSocket at `/ari/events`),
-cannot see these conferences at all: `/bridges` only exposes bridges created by ARI/Stasis,
-so a conference started from the dialplan with `ConfBridge()` is invisible to it.
-Participant lists and control for ConfBridge are available **only** through AMI.
-
-So a single AMI TCP connection carries everything — which is one Asterisk interface, fewer
-than the two the original design assumed.
-
-### Staying correct
-
-- **Recovery:** on every AMI (re)connect and on a `WB_RESYNC_INTERVAL` timer, the backend
-  re-runs `ConfbridgeList` and rebuilds the roster from scratch, so missed events cannot
-  accumulate into drift.
-- **Link state is visible:** when AMI is down the API reports `asteriskConnected: false`
-  and the UI greys the roster out and says so, rather than showing frozen data as if it
-  were live.
-- **The backend starts and stays up when Asterisk is unreachable.** A conference control
-  panel that refuses to boot because the PBX is down is exactly the tool you cannot use
-  when the PBX is down.
-
-## Prerequisites
-
-| Tool | Version | Notes |
-| --- | --- | --- |
-| Go | **1.22 or newer** | Required for `net/http` method routing patterns and `go:embed`. Verified on 1.27. |
-| Node.js | 20.19+ (24 LTS recommended) | Vite 8 will not run on older releases. Verified on 26.8. |
-| Docker | any recent Desktop / Engine | Only needed for the local Asterisk test stand under `deploy/`. |
-
-Check what you have:
+### 1. Configure the environment and start Asterisk
 
 ```sh
-go version
-node -v
-docker compose version
+# First run only; do not overwrite an existing deploy/.env.
+cp deploy/.env.example deploy/.env
+set -a
+. ./deploy/.env
+set +a
+
+# Make the web panel accessible only from this computer.
+export WB_LISTEN=127.0.0.1:8080
+
+docker compose -f deploy/docker-compose.yml up -d --build
+docker compose -f deploy/docker-compose.yml ps
 ```
 
-### Docker CLI missing on macOS
+Wait for Asterisk to become `healthy`. The example environment includes AMI
+credentials, room **1000**, and `WB_COOKIE_SECURE=false` for local HTTP.
 
-Docker Desktop can be installed while `docker` is absent from `PATH` — the binaries
-live inside the app bundle. Link them once:
+### 2. Build the application and create an administrator
 
 ```sh
-sudo ln -sf /Applications/Docker.app/Contents/Resources/bin/docker /usr/local/bin/docker
+make build
+.bin/westbridge bootstrap-admin admin
 ```
 
-The `compose` subcommand is a CLI plugin and is picked up automatically from
-`~/.docker/cli-plugins`, so `docker compose version` works as soon as `docker` resolves.
-Docker Desktop must be running for any command to connect.
+The command prompts for a password twice. It works only with an empty user
+database; skip it on subsequent runs. Passwords must contain at least **3 characters**.
 
-## Building and testing
-
-```sh
-make          # lint, test, build
-make build    # frontend (Vite) + go build -o .bin/westbridge ./cmd/westbridge
-make test     # go test ./...
-make lint     # golangci-lint + tsc --noEmit
-make tools    # install golangci-lint into .bin/
-```
-
-`make build` writes the Vite output into `internal/web/assets/dist`, which the Go binary
-embeds. That directory keeps a committed `.gitkeep` so `go build` works on a fresh clone
-before the frontend has ever been built; a binary built that way serves the API and
-reports that no frontend is embedded instead of serving a blank page.
-
-The resulting `.bin/westbridge` is self-contained — copy it anywhere, no `frontend/`
-directory required at runtime.
-
-## Running
-
-Set the required variables and start it:
+### 3. Open the panel
 
 ```sh
-export WB_AMI_USER=westbridge WB_AMI_SECRET=westbridge-secret
-export WB_ROOM=1000 WB_ORIGINATE_CONTEXT=conference-out
-# Local development over HTTP only:
-export WB_LISTEN=127.0.0.1:8080 WB_COOKIE_SECURE=false
-.bin/westbridge bootstrap-admin admin  # prompts for a password, once
 .bin/westbridge
 ```
 
-Then open <http://localhost:8080>.
+Open **[http://127.0.0.1:8080](http://127.0.0.1:8080)** and sign in with the account
+you created. Add other users through **Users**.
 
-### Configuration
+### 4. Connect a SIP client
 
-All configuration comes from the environment.
+| Setting | Value |
+| --- | --- |
+| SIP server | `127.0.0.1:5060` |
+| Transport | UDP |
+| First account | `1001` / `1001-secret` |
+| Second account | `1002` / `1002-secret` |
+| Conference number | `1000` |
 
-| Variable | Default | Meaning |
+Dial **1000** from the client, or register an account and call its number using
+**Call** in the panel. SIP accounts and web accounts are independent.
+These SIP passwords are intended only for the local test stand.
+
+Press `Ctrl+C` to stop Westbridge. To stop Asterisk:
+
+```sh
+docker compose -f deploy/docker-compose.yml stop
+```
+
+On subsequent runs, load `deploy/.env`, set `WB_LISTEN`, start the container, and
+run `.bin/westbridge`. Rebuild after changing the code.
+For more stand details, see [deploy/README.md](deploy/README.md).
+
+## Using the Conference
+
+| Row | State | Actions |
+| --- | --- | --- |
+| Green | Participant connected to ConfBridge | Mute / Unmute, Kick |
+| Yellow | Dialing or joining the conference | Cancel |
+| Red | Busy, no answer, or an error | Retry, Remove |
+
+You can dial the next number as soon as a call is submitted. **Cancel** hangs up
+the channel in Asterisk; **Remove** dismisses a failed attempt. **Kick** requires
+confirmation. A participant whose microphone is muted can still hear everyone else.
+
+The icon after the phone number indicates sound activity. It turns off when the
+participant is muted or the connection is lost. Background noise can also trigger
+it. The test profile detects the end of speech after 2.5 seconds of silence.
+
+Select contacts in **Phonebook** and press **Call selected**. Successfully submitted
+calls are deselected; submission errors remain beside their contacts.
+Phonebooks are private, while the conference and call controls are shared.
+
+## Connecting Your Own Asterisk
+
+Docker is optional if you already have Asterisk with ConfBridge and AMI.
+Set `WB_AMI_ADDR`, `WB_AMI_USER`, `WB_AMI_SECRET`, `WB_ROOM`, and
+`WB_ORIGINATE_CONTEXT` for your installation.
+
+Configuration examples:
+
+- [manager.conf](deploy/asterisk/manager.conf): AMI account and permissions:
+  `read = system,call,reporting`, `write = system,call,originate,reporting`.
+- [extensions.conf](deploy/asterisk/extensions.conf): conference entry and the
+  outgoing call context. Configure your SIP endpoints or trunk in that context.
+- [confbridge.conf](deploy/asterisk/confbridge.conf): conference profiles.
+  Enable `talk_detection_events = yes` in the user profile for the speaking indicator.
+
+The bundled stand assumes SIP clients run **on the same computer**. For clients
+on other devices, set both external addresses in [pjsip.conf](deploy/asterisk/pjsip.conf)
+(`external_signaling_address` and `external_media_address`) to the host's LAN IP,
+use that address in the clients, and restart the container.
+
+The RTP range in [rtp.conf](deploy/asterisk/rtp.conf), **10000–10100/UDP**, must match
+Docker's published ports. The stand terminates calls after 60 seconds without
+incoming RTP, or 300 seconds while on hold. This recovers abandoned connections;
+normal hangup is handled through SIP BYE.
+
+## Configuration
+
+Settings are read from environment variables. Load the `.env` file into your shell
+explicitly; see [deploy/.env.example](deploy/.env.example).
+
+| Variable | Default | Purpose |
 | --- | --- | --- |
 | `WB_LISTEN` | `:8080` | HTTP listen address |
-| `WB_DB_PATH` | `data/westbridge.db` | SQLite users, sessions and contacts file, relative to the working directory |
-| `WB_COOKIE_SECURE` | `true` | HTTPS-only cookies; set `false` for local HTTP development |
-| `WB_AMI_ADDR` | `127.0.0.1:5038` | Asterisk AMI address |
-| `WB_AMI_USER` | — | AMI username (**required**) |
-| `WB_AMI_SECRET` | — | AMI secret (**required**) |
-| `WB_ROOM` | — | ConfBridge room number (**required**) |
-| `WB_ORIGINATE_CONTEXT` | — | Dialplan context for outbound calls (**required**) |
-| `WB_ORIGINATE_CALLERID` | `Westbridge <0000>` | Caller ID for originated calls |
-| `WB_ORIGINATE_TIMEOUT` | `30s` | Dial timeout (sent to AMI as milliseconds) |
-| `WB_RESYNC_INTERVAL` | `30s` | Periodic full-roster resync |
-| `WB_ALLOWED_ORIGINS` | — | Comma-separated extra `Origin` hosts accepted on `/ws` |
+| `WB_DB_PATH` | `data/westbridge.db` | SQLite path, relative to the working directory |
+| `WB_COOKIE_SECURE` | `true` | HTTPS-only cookies; use `false` for local HTTP |
+| `WB_AMI_ADDR` | `127.0.0.1:5038` | AMI address |
+| `WB_AMI_USER` | Required | AMI username |
+| `WB_AMI_SECRET` | Required | AMI password |
+| `WB_ROOM` | Required | ConfBridge conference number |
+| `WB_ORIGINATE_CONTEXT` | Required | Outgoing call context |
+| `WB_ORIGINATE_CALLERID` | `Westbridge <0000>` | Outgoing caller ID |
+| `WB_ORIGINATE_TIMEOUT` | `30s` | Dial timeout |
+| `WB_RESYNC_INTERVAL` | `30s` | Participant resynchronization interval |
+| `WB_ALLOWED_ORIGINS` | Empty | Additional trusted Origin hosts for API and WebSocket, comma-separated |
 
-Missing required variables are reported together and the process exits non-zero.
+## Users and Data Storage
 
-### Users and sign-in
+Administrators use **Users** to create accounts, change roles and passwords, and
+disable accounts. The last active administrator cannot be disabled or demoted.
+Regular users can control the conference and manage their own phonebooks.
 
-Run `.bin/westbridge bootstrap-admin admin` from the same working directory and
-with the same `WB_DB_PATH` as the server. It prompts twice for a password without
-showing it and only works on an empty user database. There are no default credentials.
-Passwords must have at least 3 characters (at most 1024 UTF-8 bytes). Logins are
-case insensitive and accept ASCII letters, digits, dots, underscores and hyphens.
+Authentication uses server-side sessions with opaque tokens in
+**HttpOnly / SameSite=Strict cookies**. Passwords are hashed with Argon2id, and
+session tokens with SHA-256. Sessions last 12 hours and survive server restarts.
+Signing out revokes the current session; an administrator's account change revokes
+all sessions for that account.
 
-Sign in, then open **Users** to create accounts, change roles, reset passwords or
-disable users. Both roles can view, invite and kick conference participants; only
-administrators can manage accounts. The last active administrator cannot be disabled
-or demoted. Disabling an account keeps its stable ID for future user-owned settings.
-User settings are not part of this iteration.
+SQLite stores users, sessions, and contacts. Keep the database in a persistent
+directory and include it in backups. Administrator bootstrapping and the server
+must use the same `WB_DB_PATH`.
 
-Authentication uses opaque, cryptographically random session tokens in **HttpOnly,
-SameSite=Strict** cookies. Tokens are stored only as SHA-256 hashes in SQLite;
-passwords use Argon2id (19 MiB, two passes, one lane), following the
-[OWASP password storage guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
-Sessions have a fixed 12-hour lifetime and survive server restarts. Signing out
-revokes that session. Any administrator change to an account revokes all of its
-sessions; existing WebSockets check validity before sending data and every second.
+Outside the local stand, serve the application over HTTPS with WebSocket proxy
+support, keep `WB_COOKIE_SECURE=true`, replace the test passwords, and restrict
+AMI access. No external database server is required.
 
-Serve production behind **HTTPS**, leaving `WB_COOKIE_SECURE=true`. For local HTTP
-on loopback, use `WB_COOKIE_SECURE=false` (already set in `deploy/.env.example`).
-Keep the SQLite file in a persistent writable directory and include it in backups;
-the application creates it with owner-only permissions. The file contains users,
-password hashes, sessions and personal contacts, and is ignored by Git under `data/`.
-
-All conference API routes and `/ws` require a session. Mutating API calls require
-`Content-Type: application/json` and reject foreign browser origins; `WB_ALLOWED_ORIGINS`
-can allow trusted development origins. Login attempts are limited to ten per minute
-per direct client IP, with at most four password checks running concurrently. Behind
-a reverse proxy this limit applies to the proxy IP; forwarded IP headers are not trusted.
-
-The AMI user needs `read = system,call,reporting` and `write = system,call,originate,reporting`;
-see `deploy/asterisk/manager.conf` for a working example.
-
-### Personal phonebook
-
-Each user has a private phonebook stored in the same SQLite database, including
-administrators. The panel appears to the left of the conference (above it on narrow
-screens). Add, edit or delete a name and number, select contacts and use **Call selected**
-to enqueue calls into the current shared conference without waiting for answers.
-Accepted entries are deselected; request failures remain selected with an error.
-Call outcomes appear in the conference's colored rows as usual.
-
-Names from your book override the displayed caller name for matching numbers,
-including outgoing attempts. These labels stay personal; the shared conference
-snapshot never contains another user's contact book. Formatted numbers are normalized,
-and a number can appear only once per user's book. Contacts survive server restarts.
-Other tabs reload the book on focus. Deleting a contact does not end its active call.
-
-### HTTP API
-
-```
-POST   /api/auth/login                         body {"login":"...","password":"..."} -> user + session cookie
-GET    /api/auth/me                            -> current user
-POST   /api/auth/logout                        -> 204, revokes session
-GET    /api/users                              -> users (admin only)
-POST   /api/users                              body {"login":"...","password":"...","role":"user"} -> 201 (admin)
-PATCH  /api/users/{id}                          body {"role":"user","enabled":false,"password":"..."} (all fields optional, admin)
-GET    /api/contacts                           -> current user's [{"id":1,"name":"Alice","number":"1002"}]
-POST   /api/contacts                           body {"name":"Alice","number":"1002"} -> 201
-PUT    /api/contacts/{id}                       body {"name":"Alice","number":"1003"} -> 200
-DELETE /api/contacts/{id}                       -> 204 (owner only, including admins)
-GET    /api/conference                         -> 200 {"room":"1000","asteriskConnected":true,"participants":[...],"calls":[...]}
-POST   /api/conference/participants            body {"number":"1002"} -> 202 {"actionId":"..."}
-DELETE /api/conference/participants/{uniqueid} -> 204
-PUT    /api/conference/participants/{uniqueid}/mute body {"muted":true} -> 204 (false to unmute)
-DELETE /api/conference/calls/{id}               -> 204 (cancel a dial or remove a failed row)
-POST   /api/conference/calls/{id}/retry          -> 202 {"actionId":"..."}
-GET    /ws                                     -> WebSocket, server -> client only
-```
-
-Errors come back as `{"error":"..."}`. A participant looks like:
-
-```json
-{
-  "uniqueid": "1756...", "channel": "PJSIP/1001-0000000a",
-  "callerIdNum": "1001", "callerIdName": "Alice",
-  "admin": false, "muted": false, "joinedAt": "2026-09-01T10:00:00Z"
-}
-```
-
-`joinedAt` is omitted when the participant was first discovered by a snapshot;
-Asterisk reports call age, not time in the conference. The UI shows “—” in that case.
-
-The WebSocket sends the current snapshot immediately on connect and then one message per
-change: `{"type":"snapshot","room":"1000","asteriskConnected":true,"participants":[...],"calls":[...]}`.
-
-### Outgoing call states
-
-The form is ready for another number as soon as the server accepts the attempt;
-it does not wait for an answer. Everyone viewing the conference sees the same calls:
-
-- Green: a participant has actually joined ConfBridge; **Kick** removes them.
-- Yellow: an independent dial attempt is in progress; **Cancel** requests a real
-  AMI Hangup and stays in “Cancelling” until the channel is gone.
-- Red: the call failed, with a reason such as Busy, No answer, Unavailable or
-  Connection failed; **Retry** starts a new attempt and **Remove** dismisses it.
-
-Snapshots include `calls`, an array of `{id, number, state, reason?, createdAt,
-cancelling?}`. `state` is `dialing` or `failed`; connected calls appear only in
-`participants`. Async Originate acceptance creates an attempt even if the later
-outcome is a failure. An ambiguous network error remains pending until Asterisk
-confirms an outcome; it is never treated as proof that no call exists.
-
-Westbridge sets `ChannelId` and `OtherChannelId` and uses `Local/.../n` so that
-channel IDs remain stable. Correlation and cancellation use those IDs, not phone
-numbers. If an answer races with Cancel, the same outgoing channel is hung up.
-DialEnd, Hangup and OriginateResponse supply failure reasons; the most specific
-available reason wins. Ordinary AMI outcomes are delivered to the event stream
-even when the command acknowledgement is still pending.
-
-Call rows are transient, shared in-memory state, not call history: they reset on a
-Westbridge restart. Existing conference participants are rediscovered by resync.
-There are at most 200 tracked outgoing attempts/connected calls; remove old failed
-rows to free space. A lost AMI connection disables call control until reconnection.
-Missing terminal events are reconciled after the dial timeout plus ten seconds:
-a fresh conference snapshot protects already-connected participants before any
-remaining expired attempt is hung up.
-
-## Local Asterisk test stand
-
-`deploy/` contains a docker-compose stand with a real Asterisk: ConfBridge room **1000**
-and two softphone endpoints, **1001** and **1002**.
+## Development
 
 ```sh
-docker compose -f deploy/docker-compose.yml up -d --build
-cp deploy/.env.example deploy/.env
-set -a; . ./deploy/.env; set +a
-make build
-.bin/westbridge bootstrap-admin admin  # first run only
-.bin/westbridge
+make build                    # Build frontend and Go binary in .bin/westbridge
+make test                     # Run Go tests
+make lint                     # Run golangci-lint and TypeScript type checking
+make                          # Lint, test, and build
+npm --prefix frontend test    # Run frontend tests
+npm --prefix frontend run lint
 ```
 
-Register a softphone as `1001` (password `1001-secret`) against `127.0.0.1:5060` over UDP
-and dial `1000`. See **[deploy/README.md](deploy/README.md)** for endpoint details, CLI
-checks, and the invite flow.
+`make build` installs frontend dependencies if `node_modules` is missing. The
+frontend is built into `internal/web/assets/dist` and embedded in the Go binary.
+Node.js and frontend source files are not required to run the resulting binary.
 
-The stand advertises `127.0.0.1` for SIP and RTP to clients on the same computer.
-For phones on other devices, set both external addresses in `deploy/asterisk/pjsip.conf`
-to the host's LAN IP and restart Asterisk. `rtp.conf` matches Docker's published
-10000–10100 UDP range. Missing RTP terminates abandoned calls after 60 seconds
-(300 seconds on hold); normal hangup is immediate via SIP BYE.
-
-## Frontend development
-
-`npm run dev` proxies `/api` and `/ws` to the Go backend on `:8080`, so run the binary and
-Vite side by side and get hot reload:
+For frontend development, start the backend with its environment loaded:
 
 ```sh
-WB_ALLOWED_ORIGINS=localhost:5173 .bin/westbridge &
-cd frontend && npm run dev
+WB_ALLOWED_ORIGINS=localhost:5173,127.0.0.1:5173 .bin/westbridge
 ```
 
-`WB_ALLOWED_ORIGINS` is needed because the Vite proxy forwards the dev server's own
-`Origin` while rewriting `Host` to the backend, so the `/ws` handshake looks cross-origin.
-Without it the REST calls still work and the socket is refused with a 403. Point the proxy
-elsewhere with `WB_DEV_BACKEND`.
+In a second terminal:
 
-## Layout
-
-```
-cmd/westbridge/main.go     entry point, config, wiring, graceful shutdown
-internal/ami/              AMI protocol codec + client (connection, login, actions, events)
-internal/ami/amitest/      fake AMI server used by the tests
-internal/conference/       roster state + service (list / kick / invite)
-internal/hub/              browser WebSocket pub/sub
-internal/web/              HTTP handlers, WS endpoint, embedded assets
-frontend/                  React + Vite + TypeScript sources
-deploy/                    docker-compose stand + Asterisk configs
-docs/plans/                the implementation plan and the research behind it
+```sh
+cd frontend
+npm ci
+npm run dev
 ```
 
-Connected participants have **Mute / Unmute** controls. Muting blocks their microphone
-inside ConfBridge while allowing them to hear the conference. The state is shared
-with all users, updated from AMI events and recovered by roster synchronization.
+Vite proxies `/api` and `/ws` to `http://127.0.0.1:8080`.
+Set `WB_DEV_BACKEND` when starting Vite to use a different backend address.
 
-### Speaking indicator
+## Architecture
 
-The user profile enables `talk_detection_events=yes`. Westbridge consumes
-`ConfbridgeTalking` (`TalkingStatus: on/off`) and displays a sound icon after the
-participant's phone number. This is sound activity detection, not a volume meter or speech
-recognition. The default silence threshold is 2500 ms, so brief pauses do not make
-it flicker. Muting, departure or loss of the AMI connection clears the indicator.
-Normal roster refreshes retain activity because ConfbridgeList does not include it.
-After reconnect, activity remains off until a fresh talking event arrives.
-Profile changes apply to participants joining after the ConfBridge module reload.
+```text
+Browser ── HTTP/JSON ──► Go backend ── AMI/TCP ──► Asterisk ConfBridge
+        ◄─ WebSocket ──            ◄─ events ───
+                             │
+                           SQLite
+```
+
+The backend maintains one AMI connection for commands and events. The browser
+sends commands over REST and receives full conference snapshots over WebSocket.
+On reconnect and at regular intervals, `ConfbridgeList` restores the participant
+list. Speaking activity arrives separately through `ConfbridgeTalking`.
+
+| Directory | Contents |
+| --- | --- |
+| `cmd/westbridge/` | Startup, configuration, administrator bootstrap |
+| `internal/ami/` | AMI client and protocol |
+| `internal/conference/` | Participants, calls, mute, and speaking activity |
+| `internal/auth/` | SQLite, users, sessions, and contacts |
+| `internal/hub/` | WebSocket snapshot broadcasting |
+| `internal/web/` | HTTP API and embedded frontend |
+| `frontend/` | React, TypeScript, and Vite |
+| `deploy/` | Local Asterisk stand |
+
+## HTTP API
+
+All routes except login require a session cookie. Mutating requests require
+`Content-Type: application/json` and are subject to Origin validation.
+Errors are returned as `{"error":"..."}`.
+
+| Method | Path | Purpose / request body |
+| --- | --- | --- |
+| POST | `/api/auth/login` | `{"login":"...","password":"..."}` |
+| GET | `/api/auth/me` | Current user |
+| POST | `/api/auth/logout` | Sign out |
+| GET / POST | `/api/users` | List / create users, administrator only |
+| PATCH | `/api/users/{id}` | Update `role`, `enabled`, or `password`, administrator only |
+| GET / POST | `/api/contacts` | Personal phonebook / create: `{"name":"Alice","number":"1002"}` |
+| PUT / DELETE | `/api/contacts/{id}` | Replace name and number / delete an owned contact |
+| GET | `/api/conference` | Current conference state |
+| POST | `/api/conference/participants` | Invite: `{"number":"1002"}` |
+| DELETE | `/api/conference/participants/{uniqueid}` | Kick a participant |
+| PUT | `/api/conference/participants/{uniqueid}/mute` | `{"muted":true}`; use `false` to unmute |
+| DELETE | `/api/conference/calls/{id}` | Cancel dialing / dismiss a failed attempt |
+| POST | `/api/conference/calls/{id}/retry` | Retry a call |
+| GET | `/ws` | WebSocket snapshots: `type`, `room`, `asteriskConnected`, `participants`, `calls` |
+
+See [frontend/src/types.ts](frontend/src/types.ts) for the wire types.
+
+## Limitations and Troubleshooting
+
+- Each Westbridge instance controls one shared conference.
+- The test Asterisk profile sets **`max_members = 20`**. Increase this limit for
+  40–50 participants; the compact UI does not change the conference capacity.
+- Outgoing attempt rows are stored in memory and reset on a Westbridge restart.
+  Connected participants are rediscovered from Asterisk. There is no call history.
+- Up to 200 outgoing attempts and their connected calls can be tracked;
+  dismiss old failed attempts with **Remove** to free space.
+- After AMI reconnects, the speaking indicator waits for a new activity event.
+
+| Symptom | What to check |
+| --- | --- |
+| No connection to Asterisk | Container status, `WB_AMI_*`, port 5038, and allowed addresses in `manager.conf` |
+| `ConfbridgeList: Permission denied` | The AMI account needs the `write = reporting` permission |
+| No audio or participants remain after hangup | External SIP/RTP addresses, `local_net`, RTP port forwarding, and SIP BYE delivery |
+| Login cookie is not saved locally | Set `WB_COOKIE_SECURE=false` for HTTP |
+| No frontend after startup | Run `make build`, not just `go build` |
+| Docker CLI is unavailable | Start Docker Desktop and make sure Docker and Compose are available in `PATH` |
+
+Useful commands:
+
+```sh
+docker compose -f deploy/docker-compose.yml logs --tail=100 asterisk
+docker compose -f deploy/docker-compose.yml exec asterisk asterisk -rx 'confbridge list 1000'
+docker compose -f deploy/docker-compose.yml exec asterisk asterisk -rx 'core show channels concise'
+```
