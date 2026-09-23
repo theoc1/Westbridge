@@ -50,7 +50,7 @@ export function ParticipantList({ participants, calls, stale, socketConnected, c
   }
 
   return (
-    <ul className={`roster${stale ? ' roster-stale' : ''}`} aria-label="Calls and participants">
+    <ul className={`roster${stale ? ' roster-stale' : ''}`} aria-label="Calls and participants" tabIndex={0}>
       {calls.map(call => <CallRow key={call.id} name={contactNames.get(contactNumber(call.number))} call={call} stale={stale} socketConnected={socketConnected} duration={formatDuration(call.createdAt, now)} />)}
       {participants.map((participant) => (
         <ParticipantRow
@@ -90,9 +90,9 @@ function ParticipantRow({ participant, disabled, duration }: ParticipantRowProps
     <li className="roster-row participant-row call-connected">
       <div className="roster-identity">
         <div className="participant-heading">
-          <span className="roster-name">{displayName(participant)}</span>
-          <span className="roster-number">{participant.callerIdNum || '—'}</span>
-          {participant.talking && !participant.muted && !disabled && <span className="talking-indicator" role="img" aria-label="Говорит" title="Говорит"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2 6v4h3l4 3V3L5 6H2Zm10-2c2 2 2 6 0 8" /></svg></span>}
+          <span className="roster-name" title={displayName(participant)}>{displayName(participant)}</span>
+          <span className="roster-number" title={participant.callerIdNum}>{participant.callerIdNum || '—'}</span>
+          <span className={`talking-indicator${participant.talking && !participant.muted && !disabled ? " is-talking" : ""}`} role="img" aria-label="Говорит" title="Говорит"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2 6v4h3l4 3V3L5 6H2Zm10-2c2 2 2 6 0 8" /></svg></span>
         </div>
         {error !== null && (
           <span className="roster-error" role="alert">

@@ -385,3 +385,48 @@ body {
 
 .talking-indicator { display: inline-flex; align-items: center; gap: .25rem; color: var(--ok); font-size: .75rem; white-space: nowrap; flex-shrink: 0; }
 .talking-indicator svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+
+/* Dense, independently scrollable lists for large conferences and phonebooks. */
+.conference-layout { gap: .75rem; grid-template-columns: minmax(20rem, 24rem) minmax(0, 1fr); }
+.conference-panel, .phonebook { gap: .45rem; }
+.phonebook { padding: .55rem; border-radius: 4px; }
+.phonebook-heading h2 { font-size: .9rem; }
+.contact-list { max-height: max(12rem, calc(100dvh - 16rem)); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.contact-row { padding: .2rem 0; gap: .25rem; min-height: 30px; }
+.contact-identity { gap: .3rem; }
+.contact-identity > span { flex: 1; flex-direction: row; align-items: baseline; gap: .4rem; overflow: hidden; }
+.contact-identity strong { flex: 1; min-width: 0; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: .8rem; }
+.contact-identity .roster-number { flex: 0 1 auto; max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; }
+.contact-actions { flex: none; gap: .15rem; }
+.phonebook .icon-button { width: 26px; height: 26px; padding: 4px; display: inline-flex; align-items: center; justify-content: center; border-color: transparent; border-radius: 3px; }
+.icon-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.phonebook .icon-button:hover { background: var(--bg); border-color: var(--border); }
+.conference-panel .roster { gap: .2rem; max-height: max(12rem, calc(100dvh - 13rem)); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.participant-row { padding: .2rem .4rem; gap: .25rem .4rem; border-radius: 3px; flex-wrap: nowrap; min-height: 32px; }
+.participant-row .roster-identity { flex: 1 1 0; min-width: 0; }
+.participant-heading { gap: .35rem; }
+.participant-heading .roster-name { min-width: 0; font-size: .8rem; }
+.participant-heading .roster-number { font-size: .75rem; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.participant-row .roster-meta, .participant-row .roster-actions { flex: none; gap: .25rem; }
+.participant-row .button { padding: .2rem .4rem; font-size: .75rem; border-radius: 3px; }
+.participant-row .roster-duration { font-size: .75rem; min-width: 3.2em; text-align: right; }
+.participant-row .tag { padding: 0 .2rem; font-size: .6rem; border-radius: 3px; }
+.talking-indicator { width: 1rem; height: 1rem; flex: 0 0 1rem; visibility: hidden; }
+.talking-indicator.is-talking { visibility: visible; }
+.dial-form { border-radius: 4px; padding: .35rem .45rem; }
+.contact-list:focus-visible, .conference-panel .roster:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 60rem) {
+  .participant-row .roster-meta > .call-state { display: none; }
+}
+@media (max-width: 52rem) {
+  .conference-layout { grid-template-columns: minmax(0, 1fr); }
+  .contact-list { max-height: 35dvh; }
+  .conference-panel .roster { max-height: 60dvh; }
+}
+@media (max-width: 30rem) {
+  .participant-row { flex-wrap: wrap; }
+  .participant-row .roster-identity { flex: 1 1 calc(100% - 5rem); }
+  .participant-row .roster-actions { margin-left: auto; }
+}
+/* Keep multiline errors and confirmations readable inside flex scrollers. */
+.contact-row, .participant-row { flex-shrink: 0; }
