@@ -82,19 +82,21 @@ into the room.
 
 ## Known limitations
 
-- **Audio through Docker on macOS is unreliable.** SIP signalling and the
-  roster work; RTP frequently does not, because the container's media address
-  is not routable from the host. This app cares about signalling and roster
-  state, so one-way or missing audio on the stand is expected and not worth
-  debugging. If you do want media, uncomment `external_media_address` /
-  `external_signaling_address` in `asterisk/pjsip.conf`, set them to your
-  host's LAN IP, and restart the container.
+- **Addressing must match the clients.** The default external SIP and media
+  address is `127.0.0.1` for softphones on this computer. For other devices,
+  change both addresses in `asterisk/pjsip.conf` to the host's LAN IP and restart
+  the container. Otherwise BYE and RTP can be sent to an unreachable address.
+  The container subnet alone belongs in `local_net`.
+- **RTP ports must match.** `asterisk/rtp.conf` uses 10000–10100, matching Docker.
+  When changing the range, update both files. Lost calls without SIP BYE are
+  terminated after 60 seconds without incoming RTP (300 seconds on hold).
+  Clients using silence suppression must still send RTP/comfort noise within
+  this interval, or the timeout must be adjusted.
 - **The credentials here are throwaway.** `manager.conf` and `pjsip.conf` carry
   plaintext secrets on purpose; this stand is for a laptop, not a network
   anyone else can reach.
 - **Publishing 101 UDP ports** for RTP makes `docker compose up` noticeably
-  slow on Docker Desktop. Narrow the range in `docker-compose.yml` if you do
-  not need media at all.
+  slow on Docker Desktop. If narrowing the range, update `asterisk/rtp.conf` as well.
 
 ## Tear it down
 

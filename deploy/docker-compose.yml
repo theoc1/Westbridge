@@ -21,6 +21,7 @@ services:
       # modules.conf and logger.conf stay as the distro shipped them.
       - ./asterisk/manager.conf:/etc/asterisk/manager.conf:ro
       - ./asterisk/http.conf:/etc/asterisk/http.conf:ro
+      - ./asterisk/rtp.conf:/etc/asterisk/rtp.conf:ro
       - ./asterisk/pjsip.conf:/etc/asterisk/pjsip.conf:ro
       - ./asterisk/confbridge.conf:/etc/asterisk/confbridge.conf:ro
       - ./asterisk/extensions.conf:/etc/asterisk/extensions.conf:ro

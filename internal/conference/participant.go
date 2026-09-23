@@ -28,6 +28,7 @@ type Participant struct {
 	CallerIDNum  string    `json:"callerIdNum"`
 	CallerIDName string    `json:"callerIdName"`
 	Admin        bool      `json:"admin"`
+	Talking      bool      `json:"talking"`
 	Muted        bool      `json:"muted"`
 	JoinedAt     time.Time `json:"joinedAt,omitzero"`
 }

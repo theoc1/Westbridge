@@ -27,6 +27,7 @@ func (r *Roster) Add(p Participant) bool {
 
 	prev, existed := r.m[p.UniqueID]
 	p.JoinedAt = r.resolveJoinedAt(p, prev, existed)
+	p.Talking = existed && prev.Talking && !p.Muted
 	if p.JoinedAt.IsZero() {
 		p.JoinedAt = time.Now()
 	}
@@ -75,6 +76,7 @@ func (r *Roster) Replace(ps []Participant) bool {
 		}
 		prev, existed := r.m[p.UniqueID]
 		p.JoinedAt = r.resolveJoinedAt(p, prev, existed)
+		p.Talking = existed && prev.Talking && !p.Muted
 		next[p.UniqueID] = p
 	}
 
@@ -151,10 +153,40 @@ func (r *Roster) SetMuted(id string, muted bool) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	p, ok := r.m[id]
-	if !ok || p.Muted == muted {
+	if !ok || (p.Muted == muted && (!muted || !p.Talking)) {
 		return false
 	}
 	p.Muted = muted
+	if muted {
+		p.Talking = false
+	}
 	r.m[id] = p
 	return true
+}
+
+// SetTalking applies activity events only to present, unmuted participants.
+func (r *Roster) SetTalking(id string, talking bool) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p, ok := r.m[id]
+	if !ok {
+		return false
+	}
+	talking = talking && !p.Muted
+	if p.Talking == talking {
+		return false
+	}
+	p.Talking = talking
+	r.m[id] = p
+	return true
+}
+
+// ResetTalking discards transient activity when the AMI connection changes.
+func (r *Roster) ResetTalking() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, p := range r.m {
+		p.Talking = false
+		r.m[id] = p
+	}
 }

@@ -290,9 +290,11 @@ Register a softphone as `1001` (password `1001-secret`) against `127.0.0.1:5060`
 and dial `1000`. See **[deploy/README.md](deploy/README.md)** for endpoint details, CLI
 checks, and the invite flow.
 
-Note that **RTP through Docker on macOS is unreliable** — SIP signalling and the roster
-work, audio often does not. This app cares about signalling and roster state, so that is
-expected on the stand and not worth debugging.
+The stand advertises `127.0.0.1` for SIP and RTP to clients on the same computer.
+For phones on other devices, set both external addresses in `deploy/asterisk/pjsip.conf`
+to the host's LAN IP and restart Asterisk. `rtp.conf` matches Docker's published
+10000–10100 UDP range. Missing RTP terminates abandoned calls after 60 seconds
+(300 seconds on hold); normal hangup is immediate via SIP BYE.
 
 ## Frontend development
 
@@ -326,3 +328,14 @@ docs/plans/                the implementation plan and the research behind it
 Connected participants have **Mute / Unmute** controls. Muting blocks their microphone
 inside ConfBridge while allowing them to hear the conference. The state is shared
 with all users, updated from AMI events and recovered by roster synchronization.
+
+### Speaking indicator
+
+The user profile enables `talk_detection_events=yes`. Westbridge consumes
+`ConfbridgeTalking` (`TalkingStatus: on/off`) and displays a sound icon after the
+participant's phone number. This is sound activity detection, not a volume meter or speech
+recognition. The default silence threshold is 2500 ms, so brief pauses do not make
+it flicker. Muting, departure or loss of the AMI connection clears the indicator.
+Normal roster refreshes retain activity because ConfbridgeList does not include it.
+After reconnect, activity remains off until a fresh talking event arrives.
+Profile changes apply to participants joining after the ConfBridge module reload.

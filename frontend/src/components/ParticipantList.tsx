@@ -92,6 +92,7 @@ function ParticipantRow({ participant, disabled, duration }: ParticipantRowProps
         <div className="participant-heading">
           <span className="roster-name">{displayName(participant)}</span>
           <span className="roster-number">{participant.callerIdNum || '—'}</span>
+          {participant.talking && !participant.muted && !disabled && <span className="talking-indicator" role="img" aria-label="Говорит" title="Говорит"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2 6v4h3l4 3V3L5 6H2Zm10-2c2 2 2 6 0 8" /></svg></span>}
         </div>
         {error !== null && (
           <span className="roster-error" role="alert">

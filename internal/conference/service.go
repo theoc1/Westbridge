@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dmalkin/westbridge/internal/ami"
@@ -125,8 +126,9 @@ type Service struct {
 	state chan bool
 
 	// Serialize resync and event application, including their sequence boundary.
-	syncMu        sync.Mutex
-	ignoreThrough uint64
+	syncMu               sync.Mutex
+	ignoreThrough        uint64
+	talkingIgnoreThrough atomic.Uint64
 
 	// pubMu serialises snapshot publication. Changes originate on both Run's
 	// goroutine and on HTTP handlers, and without it two of them can capture
@@ -226,6 +228,8 @@ func (s *Service) Subscribe(fn func(Snapshot)) func() {
 // OnAMIStateChange is the callback to hand to ami.Config.OnStateChange. It
 // never blocks: the client's reader goroutine is calling it.
 func (s *Service) OnAMIStateChange(connected bool) {
+	s.talkingIgnoreThrough.Store(s.client.EventSequence())
+	s.roster.ResetTalking()
 	select {
 	case s.state <- connected:
 	default:
@@ -369,6 +373,22 @@ func (s *Service) handleEvent(msg *ami.Message) {
 		return
 	}
 
+	// Talking state is absent from ConfbridgeList, so its events must not be
+	// discarded at the roster snapshot boundary. Only connection changes reset it.
+	if strings.EqualFold(name, "ConfbridgeTalking") {
+		if !s.isOurRoom(msg) || !s.client.Connected() || (msg.Sequence != 0 && msg.Sequence <= s.talkingIgnoreThrough.Load()) {
+			return
+		}
+		status := strings.ToLower(msg.Get("TalkingStatus"))
+		if status != "on" && status != "off" {
+			return
+		}
+		if s.roster.SetTalking(msg.Get("Uniqueid"), status == "on") {
+			s.notify()
+		}
+		return
+	}
+
 	if msg.Sequence != 0 && msg.Sequence <= s.ignoreThrough {
 		return
 	}
@@ -379,7 +399,8 @@ func (s *Service) handleEvent(msg *ami.Message) {
 		strings.EqualFold(name, eventConfbridgeStart),
 		strings.EqualFold(name, eventConfbridgeEnd),
 		strings.EqualFold(name, "ConfbridgeMute"),
-		strings.EqualFold(name, "ConfbridgeUnmute"):
+		strings.EqualFold(name, "ConfbridgeUnmute"),
+		strings.EqualFold(name, "ConfbridgeTalking"):
 	default:
 		return
 	}

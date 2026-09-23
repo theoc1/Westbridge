@@ -8,6 +8,7 @@ export interface Participant {
   callerIdName: string
   admin: boolean
   muted: boolean
+  talking: boolean
   /** Observed bridge join time (RFC 3339); absent when unknown. */
   joinedAt?: string
 }
