@@ -178,27 +178,22 @@ func (s *Service) Snapshot() Snapshot {
 	visible := make([]Participant, 0, len(participants))
 	for _, p := range participants {
 		if attempt, ok := s.invites[p.UniqueID]; ok {
-			if attempt.cancelRequested {
+			if attempt.stopping() {
 				continue
 			}
 			p.CallerIDNum = attempt.Number
-			if attempt.name != "" {
-				p.CallerIDName = attempt.name
+			if attempt.Name != "" {
+				p.CallerIDName = attempt.Name
 			}
 		}
 		visible = append(visible, p)
 	}
 	for _, attempt := range s.invites {
-		if attempt.State != "connected" || attempt.cancelRequested {
-			call := attempt.Call
-			if attempt.cancelRequested {
-				call.State = "dialing"
-				call.Reason = "Cancelling…"
-				call.Cancelling = true
-			}
-			calls = append(calls, call)
+		if attempt.Phase != callConnected || attempt.stopping() {
+			calls = append(calls, attempt.view())
 		}
 	}
+
 	sort.Slice(calls, func(i, j int) bool {
 		if calls[i].CreatedAt.Equal(calls[j].CreatedAt) {
 			return calls[i].ID < calls[j].ID

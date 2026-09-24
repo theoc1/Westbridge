@@ -27,14 +27,19 @@ type Call struct {
 }
 
 type callAttempt struct {
-	Call
-	op              sync.Mutex // serializes commands for this attempt, never held by event handlers
-	cancelRequested bool
-	timeout         bool
-	finished        bool
-	created         bool
-	name            string
-	dialReason      telephony.Failure
+	callModel
+	op sync.Mutex // Serializes commands, never held by event handlers.
+}
+
+// applyCallLocked applies a pure transition and handles active-list ownership.
+// The caller holds s.mu and performs returned I/O effects after unlocking.
+func (s *Service) applyCallLocked(attempt *callAttempt, input callInput) callEffects {
+	next, effects := transitionCall(attempt.callModel, input)
+	attempt.callModel = next
+	if next.Phase == callEnded {
+		delete(s.invites, next.ID)
+	}
+	return effects
 }
 
 // Invite queues an independent asynchronous call with a stable application ID.
@@ -47,7 +52,7 @@ func (s *Service) Invite(ctx context.Context, number string) (string, error) {
 		return "", telephony.ErrUnavailable
 	}
 	id := newCallID()
-	attempt := &callAttempt{Call: Call{ID: id, Number: normalized, State: "dialing", CreatedAt: time.Now()}}
+	attempt := &callAttempt{callModel: callModel{ID: id, Number: normalized, Phase: callDialing, CreatedAt: time.Now()}}
 	attempt.op.Lock()
 	defer attempt.op.Unlock()
 	s.mu.Lock()
@@ -60,16 +65,12 @@ func (s *Service) Invite(ctx context.Context, number string) (string, error) {
 	s.notify()
 	err = s.calls.Originate(ctx, id, normalized)
 	s.mu.Lock()
-	if err != nil && !attempt.finished && attempt.State != "connected" {
+	if err != nil {
+		kind := callAcknowledgementUnknown
 		if errors.Is(err, telephony.ErrRejected) {
-			attempt.State = "failed"
-			attempt.Reason = "Asterisk rejected the call"
-			attempt.finished = true
-		} else {
-			// A lost acknowledgement does not prove that no call was placed. Keep the
-			// attempt cancellable until events or a channel snapshot resolve it.
-			attempt.Reason = "Checking call status…"
+			kind = callRejected
 		}
+		s.applyCallLocked(attempt, callInput{Kind: kind})
 	}
 	s.mu.Unlock()
 	if err != nil {
@@ -96,8 +97,8 @@ func (s *Service) CancelCall(ctx context.Context, id string) error {
 		s.mu.Unlock()
 		return ErrCallNotFound
 	}
-	if attempt.State == "failed" {
-		delete(s.invites, id)
+	if attempt.Phase == callFailed {
+		s.applyCallLocked(attempt, callInput{Kind: callCancel})
 		s.mu.Unlock()
 		s.notify()
 		return nil
@@ -106,10 +107,13 @@ func (s *Service) CancelCall(ctx context.Context, id string) error {
 		s.mu.Unlock()
 		return telephony.ErrUnavailable
 	}
-	attempt.cancelRequested = true
+	effects := s.applyCallLocked(attempt, callInput{Kind: callCancel})
 	s.mu.Unlock()
 	s.notify()
-	return s.hangupAttempt(ctx, attempt)
+	if effects.Hangup {
+		return s.hangupAttempt(ctx, attempt)
+	}
+	return nil
 }
 
 // RetryCall creates a new independent attempt, serializing clicks across users.
@@ -127,7 +131,7 @@ func (s *Service) RetryCall(ctx context.Context, id string) (string, error) {
 		s.mu.Unlock()
 		return "", ErrCallNotFound
 	}
-	if attempt.State != "failed" {
+	if attempt.Phase != callFailed {
 		s.mu.Unlock()
 		return "", ErrCallState
 	}
@@ -153,8 +157,8 @@ func (s *Service) hangupAttempt(ctx context.Context, attempt *callAttempt) error
 	} // Wait for termination or reconciliation before removing.
 	if errors.Is(err, telephony.ErrChannelNotFound) {
 		s.mu.Lock()
-		if s.invites[attempt.ID] == attempt && (attempt.finished || attempt.created || time.Since(attempt.CreatedAt) > s.cfg.OriginateTimeout+10*time.Second) {
-			s.finishCancelledLocked(attempt)
+		if s.invites[attempt.ID] == attempt {
+			s.applyCallLocked(attempt, callInput{Kind: callChannelMissing, Now: time.Now(), Timeout: s.cfg.OriginateTimeout})
 		}
 		s.mu.Unlock()
 		s.notify()
@@ -163,83 +167,24 @@ func (s *Service) hangupAttempt(ctx context.Context, attempt *callAttempt) error
 	return err
 }
 
-func (s *Service) finishCancelledLocked(attempt *callAttempt) {
-	if attempt.timeout {
-		attempt.State = "failed"
-		attempt.Reason = "No answer"
-		attempt.cancelRequested = false
-		attempt.finished = true
-	} else {
-		delete(s.invites, attempt.ID)
-	}
-}
-
 func (s *Service) handleCallEvent(event telephony.Event) {
-	id := event.ID
 	s.mu.Lock()
-	attempt := s.invites[id]
+	attempt := s.invites[event.ID]
 	if attempt == nil {
 		s.mu.Unlock()
 		return
 	}
-	changed := false
-	switch event.Kind {
-	case telephony.ChannelObserved:
-		attempt.created = true
-	case telephony.FailureObserved:
-		attempt.dialReason = event.Failure
-		if attempt.State == "failed" {
-			attempt.Reason = string(event.Failure)
-			changed = true
-		}
-	case telephony.NameUpdated:
-		attempt.name = event.Name
-		changed = true
-	case telephony.Answered, telephony.OriginationFailed:
-		if event.Kind == telephony.Answered {
-			attempt.created = true
-			if attempt.State == "dialing" && !attempt.finished {
-				attempt.Reason = "Answered; joining conference…"
-				changed = true
-			}
-		} else if attempt.State != "connected" {
-			attempt.finished = true
-			if attempt.cancelRequested {
-				s.finishCancelledLocked(attempt)
-			} else {
-				wasFailed := attempt.State == "failed"
-				attempt.State = "failed"
-				reason := attempt.dialReason
-				if reason == "" {
-					reason = event.Failure
-				}
-				if !wasFailed || reason != telephony.Unknown || attempt.Reason == "" {
-					attempt.Reason = string(reason)
-				}
-				s.log.Warn("conference: invite failed", "number", attempt.Number, "action_id", id, "reason", attempt.Reason)
-			}
-			changed = true
-		}
-	case telephony.Ended:
-		attempt.finished = true
-		if attempt.cancelRequested {
-			s.finishCancelledLocked(attempt)
-		} else if attempt.State == "connected" {
-			delete(s.invites, id)
-		} else if attempt.State != "failed" {
-			attempt.State = "failed"
-			attempt.Reason = string(attempt.dialReason)
-			if attempt.Reason == "" {
-				attempt.Reason = string(event.Failure)
-			}
-		}
-		changed = true
+	before := attempt.callModel
+	effects := s.applyCallLocked(attempt, callInput{Kind: callTransportEvent, Event: event})
+	changed := before != attempt.callModel
+	if event.Kind == telephony.OriginationFailed && attempt.Phase == callFailed {
+		s.log.Warn("conference: invite failed", "number", attempt.Number, "action_id", event.ID, "reason", attempt.view().Reason)
 	}
 	s.mu.Unlock()
-	if event.Kind == telephony.Ended {
-		s.roster.Remove(id)
+	if effects.RemoveParticipant {
+		s.roster.Remove(event.ID)
 	}
-	if changed {
+	if changed || effects.RemoveParticipant {
 		s.notify()
 	}
 }
@@ -249,10 +194,10 @@ func (s *Service) reconcileJoined(participants []Participant) bool {
 	defer s.mu.Unlock()
 	changed := false
 	for _, p := range participants {
-		if attempt := s.invites[p.UniqueID]; attempt != nil && attempt.State != "connected" {
-			attempt.State = "connected"
-			attempt.Reason = ""
-			changed = true
+		if attempt := s.invites[p.UniqueID]; attempt != nil {
+			before := attempt.callModel
+			s.applyCallLocked(attempt, callInput{Kind: callJoined})
+			changed = changed || before != attempt.callModel
 		}
 	}
 	return changed
@@ -267,15 +212,18 @@ func (s *Service) maintainCalls(ctx context.Context) {
 	s.mu.Lock()
 	attempts := make([]*callAttempt, 0)
 	for _, attempt := range s.invites {
-		if attempt.State == "dialing" || attempt.cancelRequested {
+		if attempt.pending() || attempt.stopping() {
 			attempts = append(attempts, attempt)
 		}
 	}
 	s.mu.Unlock()
+	// Use one time boundary so a deadline crossed during this pass cannot
+	// trigger a timeout without the preceding roster check.
+	now := time.Now()
 	needSnapshot := false
 	s.mu.Lock()
 	for _, attempt := range attempts {
-		if time.Since(attempt.CreatedAt) > s.cfg.OriginateTimeout+10*time.Second && !attempt.cancelRequested {
+		if attempt.needsReconcile(now, s.cfg.OriginateTimeout) {
 			needSnapshot = true
 			break
 		}
@@ -294,15 +242,12 @@ func (s *Service) maintainCalls(ctx context.Context) {
 			continue
 		}
 		s.mu.Lock()
-		current := s.invites[attempt.ID] == attempt
-		overdue := current && attempt.State == "dialing" && time.Since(attempt.CreatedAt) > s.cfg.OriginateTimeout+10*time.Second
-		if overdue && !attempt.cancelRequested {
-			attempt.cancelRequested = true
-			attempt.timeout = true
+		effects := callEffects{}
+		if s.invites[attempt.ID] == attempt {
+			effects = s.applyCallLocked(attempt, callInput{Kind: callMaintenance, Now: now, Timeout: s.cfg.OriginateTimeout})
 		}
-		cancel := current && attempt.cancelRequested
 		s.mu.Unlock()
-		if cancel {
+		if effects.Hangup {
 			actionCtx, stop := context.WithTimeout(ctx, 2*time.Second)
 			if err := s.hangupAttempt(actionCtx, attempt); err != nil {
 				s.log.Debug("conference: cancel retry", "error", err, "action_id", attempt.ID)
@@ -322,8 +267,8 @@ func (s *Service) forgetDeparted(participants []Participant) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, attempt := range s.invites {
-		if attempt.State == "connected" && !present[id] && !attempt.cancelRequested {
-			delete(s.invites, id)
+		if !present[id] {
+			s.applyCallLocked(attempt, callInput{Kind: callAbsentFromConference})
 		}
 	}
 }
