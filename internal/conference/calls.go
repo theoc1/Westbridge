@@ -3,13 +3,10 @@ package conference
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/dmalkin/westbridge/internal/ami"
+	"github.com/dmalkin/westbridge/internal/telephony"
 )
 
 // Call operation errors map to API 404, 409 and capacity responses.
@@ -37,20 +34,19 @@ type callAttempt struct {
 	finished        bool
 	created         bool
 	name            string
-	dialReason      string
+	dialReason      telephony.Failure
 }
 
-// Invite queues an independent asynchronous call. ActionID is also the uniqueid
-// of the conference-facing Local channel; /n keeps that identity stable.
+// Invite queues an independent asynchronous call with a stable application ID.
 func (s *Service) Invite(ctx context.Context, number string) (string, error) {
 	normalized, err := NormalizeNumber(number)
 	if err != nil {
 		return "", err
 	}
-	if !s.client.Connected() {
-		return "", ami.ErrNotConnected
+	if !s.calls.Connected() {
+		return "", telephony.ErrUnavailable
 	}
-	id := newActionID()
+	id := newCallID()
 	attempt := &callAttempt{Call: Call{ID: id, Number: normalized, State: "dialing", CreatedAt: time.Now()}}
 	attempt.op.Lock()
 	defer attempt.op.Unlock()
@@ -62,21 +58,10 @@ func (s *Service) Invite(ctx context.Context, number string) (string, error) {
 	s.invites[id] = attempt
 	s.mu.Unlock()
 	s.notify()
-	action := ami.NewAction(actionOriginate)
-	action.Add("ActionID", id)
-	action.Add("Channel", fmt.Sprintf("Local/%s@%s/n", normalized, s.cfg.OriginateContext))
-	action.Add("ChannelId", id)
-	action.Add("OtherChannelId", id+"-dial")
-	action.Add("Application", "ConfBridge")
-	action.Add("Data", s.cfg.Room)
-	action.Add("CallerID", s.cfg.OriginateCallerID)
-	action.Add("Timeout", strconv.FormatInt(s.cfg.OriginateTimeout.Milliseconds(), 10))
-	action.Add("Async", "true")
-	_, err = s.client.Action(ctx, action)
+	err = s.calls.Originate(ctx, id, normalized)
 	s.mu.Lock()
 	if err != nil && !attempt.finished && attempt.State != "connected" {
-		var rejection *ami.ActionError
-		if errors.As(err, &rejection) {
+		if errors.Is(err, telephony.ErrRejected) {
 			attempt.State = "failed"
 			attempt.Reason = "Asterisk rejected the call"
 			attempt.finished = true
@@ -96,7 +81,7 @@ func (s *Service) Invite(ctx context.Context, number string) (string, error) {
 }
 
 // CancelCall dismisses a failed row or requests Hangup on exactly this attempt.
-// If the answer wins the race, Hangup still terminates that same Local channel.
+// If the answer wins the race, Hangup still terminates that same call.
 func (s *Service) CancelCall(ctx context.Context, id string) error {
 	s.mu.Lock()
 	attempt := s.invites[id]
@@ -117,9 +102,9 @@ func (s *Service) CancelCall(ctx context.Context, id string) error {
 		s.notify()
 		return nil
 	}
-	if !s.client.Connected() {
+	if !s.calls.Connected() {
 		s.mu.Unlock()
-		return ami.ErrNotConnected
+		return telephony.ErrUnavailable
 	}
 	attempt.cancelRequested = true
 	s.mu.Unlock()
@@ -159,17 +144,14 @@ func (s *Service) RetryCall(ctx context.Context, id string) (string, error) {
 	return next, nil
 }
 
-// hangupAttempt is called with attempt.op held. Acknowledging an async Originate
-// may precede channel allocation: "No such channel" then means retry, not success.
+// hangupAttempt is called with attempt.op held. Acknowledging an outgoing call
+// may precede channel allocation: A missing channel then means retry, not success.
 func (s *Service) hangupAttempt(ctx context.Context, attempt *callAttempt) error {
-	action := ami.NewAction("Hangup")
-	action.Add("Channel", attempt.ID)
-	_, err := s.client.Action(ctx, action)
+	err := s.calls.Hangup(ctx, attempt.ID)
 	if err == nil {
 		return nil
-	} // Wait for Hangup or channel reconciliation before removing.
-	var actionErr *ami.ActionError
-	if errors.As(err, &actionErr) && strings.Contains(strings.ToLower(actionErr.Response.Get("Message")), "no such channel") {
+	} // Wait for termination or reconciliation before removing.
+	if errors.Is(err, telephony.ErrChannelNotFound) {
 		s.mu.Lock()
 		if s.invites[attempt.ID] == attempt && (attempt.finished || attempt.created || time.Since(attempt.CreatedAt) > s.cfg.OriginateTimeout+10*time.Second) {
 			s.finishCancelledLocked(attempt)
@@ -192,13 +174,8 @@ func (s *Service) finishCancelledLocked(attempt *callAttempt) {
 	}
 }
 
-func (s *Service) handleCallEvent(msg *ami.Message) {
-	name := msg.EventName()
-	id := msg.ActionID()
-	if !strings.EqualFold(name, eventOriginateResponse) {
-		id = msg.Get("Uniqueid")
-		id = strings.TrimSuffix(id, "-dial")
-	}
+func (s *Service) handleCallEvent(event telephony.Event) {
+	id := event.ID
 	s.mu.Lock()
 	attempt := s.invites[id]
 	if attempt == nil {
@@ -206,24 +183,20 @@ func (s *Service) handleCallEvent(msg *ami.Message) {
 		return
 	}
 	changed := false
-	switch {
-	case strings.EqualFold(name, "Newchannel") && msg.Get("Uniqueid") == attempt.ID:
+	switch event.Kind {
+	case telephony.ChannelObserved:
 		attempt.created = true
-	case strings.EqualFold(name, "DialEnd"):
-		if reason := dialFailure(msg.Get("DialStatus")); reason != "" {
-			attempt.dialReason = reason
-			if attempt.State == "failed" {
-				attempt.Reason = reason
-				changed = true
-			}
-		}
-	case strings.EqualFold(name, "NewConnectedLine"):
-		if label := msg.Get("ConnectedLineName"); label != "" && label != "<unknown>" && label != "unknown" {
-			attempt.name = label
+	case telephony.FailureObserved:
+		attempt.dialReason = event.Failure
+		if attempt.State == "failed" {
+			attempt.Reason = string(event.Failure)
 			changed = true
 		}
-	case strings.EqualFold(name, eventOriginateResponse):
-		if msg.IsSuccess() {
+	case telephony.NameUpdated:
+		attempt.name = event.Name
+		changed = true
+	case telephony.Answered, telephony.OriginationFailed:
+		if event.Kind == telephony.Answered {
 			attempt.created = true
 			if attempt.State == "dialing" && !attempt.finished {
 				attempt.Reason = "Answered; joining conference…"
@@ -238,24 +211,16 @@ func (s *Service) handleCallEvent(msg *ami.Message) {
 				attempt.State = "failed"
 				reason := attempt.dialReason
 				if reason == "" {
-					reason = originateFailure(msg.Get("Reason"))
+					reason = event.Failure
 				}
-				if !wasFailed || reason != "Connection failed" || attempt.Reason == "" {
-					attempt.Reason = reason
+				if !wasFailed || reason != telephony.Unknown || attempt.Reason == "" {
+					attempt.Reason = string(reason)
 				}
 				s.log.Warn("conference: invite failed", "number", attempt.Number, "action_id", id, "reason", attempt.Reason)
 			}
 			changed = true
 		}
-	case strings.EqualFold(name, "Hangup") && msg.Get("Uniqueid") == attempt.ID+"-dial":
-		if reason := hangupFailure(msg.Get("Cause")); reason != "Connection failed" && msg.Get("Cause") != "16" {
-			attempt.dialReason = reason
-			if attempt.State == "failed" {
-				attempt.Reason = reason
-				changed = true
-			}
-		}
-	case strings.EqualFold(name, "Hangup") && msg.Get("Uniqueid") == attempt.ID:
+	case telephony.Ended:
 		attempt.finished = true
 		if attempt.cancelRequested {
 			s.finishCancelledLocked(attempt)
@@ -263,15 +228,15 @@ func (s *Service) handleCallEvent(msg *ami.Message) {
 			delete(s.invites, id)
 		} else if attempt.State != "failed" {
 			attempt.State = "failed"
-			attempt.Reason = attempt.dialReason
+			attempt.Reason = string(attempt.dialReason)
 			if attempt.Reason == "" {
-				attempt.Reason = hangupFailure(msg.Get("Cause"))
+				attempt.Reason = string(event.Failure)
 			}
 		}
 		changed = true
 	}
 	s.mu.Unlock()
-	if strings.EqualFold(name, "Hangup") && msg.Get("Uniqueid") == id {
+	if event.Kind == telephony.Ended {
 		s.roster.Remove(id)
 	}
 	if changed {
@@ -293,59 +258,10 @@ func (s *Service) reconcileJoined(participants []Participant) bool {
 	return changed
 }
 
-func dialFailure(status string) string {
-	switch strings.ToUpper(status) {
-	case "BUSY":
-		return "Busy"
-	case "NOANSWER":
-		return "No answer"
-	case "CHANUNAVAIL":
-		return "Unavailable"
-	case "CONGESTION":
-		return "Network congestion"
-	case "CANCEL":
-		return "Call cancelled"
-	case "DONTCALL", "TORTURE", "INVALIDARGS":
-		return "Call rejected"
-	default:
-		return ""
-	}
-}
-func originateFailure(reason string) string {
-	switch reason {
-	case "1":
-		return "No answer"
-	case "3":
-		return "No answer"
-	case "5":
-		return "Busy"
-	case "8":
-		return "Network congestion"
-	default:
-		return "Connection failed"
-	}
-}
-func hangupFailure(cause string) string {
-	switch cause {
-	case "17":
-		return "Busy"
-	case "18", "19", "16":
-		return "No answer"
-	case "21":
-		return "Call rejected"
-	case "1", "3", "20", "27":
-		return "Unavailable"
-	case "34", "38", "41", "42", "44", "47":
-		return "Network congestion"
-	default:
-		return "Connection failed"
-	}
-}
-
 // maintainCalls resolves missed events and retries cancellations whose channels
 // did not exist yet. A lost AMI link never invents a successful cancellation.
 func (s *Service) maintainCalls(ctx context.Context) {
-	if !s.client.Connected() {
+	if !s.calls.Connected() {
 		return
 	}
 	s.mu.Lock()

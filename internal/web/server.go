@@ -23,6 +23,7 @@ import (
 	"github.com/dmalkin/westbridge/internal/auth"
 	"github.com/dmalkin/westbridge/internal/conference"
 	"github.com/dmalkin/westbridge/internal/hub"
+	"github.com/dmalkin/westbridge/internal/telephony"
 	"github.com/dmalkin/westbridge/internal/web/assets"
 )
 
@@ -471,7 +472,7 @@ func (s *Server) writeServiceError(ctx context.Context, w http.ResponseWriter, o
 		s.writeError(ctx, w, http.StatusNotFound, "participant is no longer in the conference")
 	case errors.Is(err, conference.ErrInvalidNumber):
 		s.writeError(ctx, w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, ami.ErrNotConnected), errors.Is(err, ami.ErrDisconnected):
+	case errors.Is(err, telephony.ErrUnavailable), errors.Is(err, ami.ErrNotConnected), errors.Is(err, ami.ErrDisconnected):
 		s.writeError(ctx, w, http.StatusServiceUnavailable, "not connected to Asterisk")
 	case errors.Is(err, context.DeadlineExceeded):
 		s.writeError(ctx, w, http.StatusGatewayTimeout, "Asterisk did not answer in time")

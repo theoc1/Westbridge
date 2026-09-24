@@ -32,7 +32,6 @@ var (
 const (
 	actionConfbridgeList = "ConfbridgeList"
 	actionConfbridgeKick = "ConfbridgeKick"
-	actionOriginate      = "Originate"
 
 	eventConfbridgeList         = "ConfbridgeList"
 	eventConfbridgeListComplete = "ConfbridgeListComplete"
@@ -101,6 +100,16 @@ type Snapshot struct {
 	Calls             []Call        `json:"calls"`
 }
 
+// CallController exposes outgoing call operations without protocol messages.
+// Originate reports ErrRejected only for a definitive rejection; other errors
+// leave the outcome unknown. Hangup acknowledgement does not confirm termination.
+// ErrChannelNotFound may mean that a newly originated call is not allocated yet.
+type CallController interface {
+	Connected() bool
+	Originate(ctx context.Context, id, number string) error
+	Hangup(ctx context.Context, id string) error
+}
+
 // Service owns the roster and turns AMI traffic into snapshots.
 //
 // Because *ami.Client takes its state-change callback at construction time
@@ -114,7 +123,9 @@ type Snapshot struct {
 //	svc = conference.New(client, conference.Config{ /* ... */ })
 //	go client.Run(ctx)
 //	go svc.Run(ctx)
+
 type Service struct {
+	calls  CallController
 	client AMIClient
 	cfg    Config
 	log    *slog.Logger
@@ -148,6 +159,7 @@ func New(client AMIClient, cfg Config) *Service {
 	resolved := cfg.withDefaults()
 	return &Service{
 		client:  client,
+		calls:   ami.NewCallController(client, ami.CallConfig{Room: resolved.Room, Context: resolved.OriginateContext, CallerID: resolved.OriginateCallerID, Timeout: resolved.OriginateTimeout}),
 		cfg:     resolved,
 		log:     resolved.Logger,
 		roster:  NewRoster(),
@@ -365,7 +377,9 @@ func (s *Service) handleEvent(msg *ami.Message) {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
 	name := msg.EventName()
-	s.handleCallEvent(msg)
+	if event, ok := ami.DecodeCallEvent(msg); ok {
+		s.handleCallEvent(event)
+	}
 
 	// OriginateResponse is the only event we care about that is not scoped to
 	// a conference, so it is matched before the room filter.
@@ -500,10 +514,8 @@ func isNoSuchConference(err error) bool {
 		strings.Contains(msg, "conference not found")
 }
 
-// newActionID returns an identifier for an Originate. The service generates it
-// instead of letting the client do so because the ActionID is the only link
-// between the request and the OriginateResponse that arrives much later.
-func newActionID() string {
+// newCallID identifies an application attempt independently of its number.
+func newCallID() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return fmt.Sprintf("wb-invite-%d", time.Now().UnixNano())
