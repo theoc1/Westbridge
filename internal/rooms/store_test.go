@@ -123,3 +123,22 @@ func TestFreshAndLegacyImportOnce(t *testing.T) {
 		})
 	}
 }
+
+func TestExpandedRoomRange(t *testing.T) {
+	db, err := database.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	s := New(db, 100, 9999)
+	for _, number := range []string{"100", "999", "1000", "6999", "8000", "9999"} {
+		if _, err := s.Create(context.Background(), "Room", number); err != nil {
+			t.Errorf("%s: %v", number, err)
+		}
+	}
+	for _, number := range []string{"99", "10000"} {
+		if _, err := s.Create(context.Background(), "Room", number); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", number, err)
+		}
+	}
+}

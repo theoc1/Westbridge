@@ -161,3 +161,42 @@ func TestThreeCharacterPasswords(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestResetPassword(t *testing.T) {
+	db, err := database.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	s := New(db)
+	admin, err := s.Bootstrap("admin", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := s.Login("admin", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ResetPassword("missing", "new"); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+	if _, err = s.ResetPassword("admin", "ab"); !errors.Is(err, ErrInvalid) {
+		t.Fatal(err)
+	}
+	if _, err = s.Authenticate(token); err != nil {
+		t.Fatal("invalid reset revoked session", err)
+	}
+	updated, err := s.ResetPassword(" Admin ", "new")
+	if err != nil || updated != admin {
+		t.Fatalf("identity changed: %+v %v", updated, err)
+	}
+	if _, err = s.Authenticate(token); !errors.Is(err, ErrSession) {
+		t.Fatal("old session survived", err)
+	}
+	if _, _, err = s.Login("admin", "old"); !errors.Is(err, ErrCredentials) {
+		t.Fatal("old password accepted", err)
+	}
+	if _, _, err = s.Login("admin", "new"); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -49,7 +49,7 @@ docker compose -f deploy/docker-compose.yml ps
 ```
 
 Wait for Asterisk to become `healthy`. The example environment includes AMI
-credentials, a reserved conference range **7000–7999**, and `WB_COOKIE_SECURE=false` for local HTTP.
+credentials, a reserved conference range **100–9999**, and `WB_COOKIE_SECURE=false` for local HTTP.
 
 ### 2. Build the application and create an administrator
 
@@ -192,8 +192,8 @@ explicitly; see [deploy/.env.example](deploy/.env.example).
 | `WB_AMI_USER` | Required | AMI username |
 | `WB_AMI_SECRET` | Required | AMI password |
 | `WB_ROOM` | Empty | One-time legacy room import on upgrade, not a runtime selector |
-| `WB_ROOM_MIN` | `7000` | Lowest reserved room extension |
-| `WB_ROOM_MAX` | `7999` | Highest reserved room extension |
+| `WB_ROOM_MIN` | `100` | Lowest reserved room extension |
+| `WB_ROOM_MAX` | `9999` | Highest reserved room extension |
 | `WB_ORIGINATE_CONTEXT` | Required | Outgoing call context |
 | `WB_ORIGINATE_CALLERID` | `Westbridge <0000>` | Outgoing caller ID |
 | `WB_ORIGINATE_TIMEOUT` | `30s` | Dial timeout |
@@ -206,6 +206,18 @@ Administrators use **Administration → Users** to create accounts, change roles
 disable accounts. The last active administrator cannot be disabled or demoted.
 Regular users can control assigned rooms and manage their own phonebooks.
 New users have no room access until an administrator grants it.
+
+To reset a forgotten password, run from the project directory:
+
+```sh
+.bin/westbridge reset-password admin
+```
+
+Replace `admin` with the existing account's login. The command prompts for the new
+password twice without echoing it (minimum 3 characters). Set `WB_DB_PATH` if the
+server uses a non-default database. The server may remain running. Resetting a
+password revokes that user's sessions and preserves their role, enabled status,
+contacts, and room grants. It does not create a missing account.
 
 Authentication uses server-side sessions with opaque tokens in
 **HttpOnly / SameSite=Strict cookies**. Passwords are hashed with Argon2id, and

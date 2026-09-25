@@ -157,6 +157,20 @@ func (s *Store) Users() ([]User, error) {
 	return users, rows.Err()
 }
 
+// ResetPassword changes an existing account's password without changing access.
+// UpdateUser atomically replaces the hash and revokes the account's sessions.
+func (s *Store) ResetPassword(login, password string) (User, error) {
+	var id int64
+	err := s.db.QueryRow("SELECT id FROM users WHERE login=?", NormalizeLogin(login)).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return s.UpdateUser(id, Update{Password: &password})
+}
+
 // Update contains the access and credential changes an administrator can make.
 type Update struct {
 	Role     *string `json:"role,omitempty"`

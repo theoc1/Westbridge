@@ -83,11 +83,11 @@ func loadConfig() (config, error) {
 	}
 
 	var err error
-	cfg.RoomMin, err = strconv.Atoi(envOr("WB_ROOM_MIN", "7000"))
+	cfg.RoomMin, err = strconv.Atoi(envOr("WB_ROOM_MIN", "100"))
 	if err != nil {
 		return cfg, err
 	}
-	cfg.RoomMax, err = strconv.Atoi(envOr("WB_ROOM_MAX", "7999"))
+	cfg.RoomMax, err = strconv.Atoi(envOr("WB_ROOM_MAX", "9999"))
 	if err != nil || cfg.RoomMin < 1 || cfg.RoomMax < cfg.RoomMin || cfg.RoomMax > 999999999 {
 		return cfg, fmt.Errorf("invalid room range")
 	}
@@ -167,8 +167,8 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 	})
 
 	if cfg.RoomMin == 0 {
-		cfg.RoomMin = 7000
-		cfg.RoomMax = 7999
+		cfg.RoomMin = 100
+		cfg.RoomMax = 9999
 	}
 	catalogue := rooms.New(db, cfg.RoomMin, cfg.RoomMax)
 	if err := catalogue.ImportLegacy(cfg.Room); err != nil {

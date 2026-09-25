@@ -107,7 +107,9 @@ docker compose -f deploy/docker-compose.yml down
 
 ## Managed Room Contract
 
-The stand reserves 7000–7999 for rooms and keeps 1000 as a legacy upgrade alias.
+The stand accepts room numbers 100–9999, including legacy room 1000.
+Direct SIP dialing of 1001 and 1002 still reaches the test endpoints; avoid using
+those numbers for rooms that need direct dial-in.
 Direct calls to 1001/1002 remain independent. Other ranges require matching changes
 to both the dialplan and `WB_ROOM_MIN`/`WB_ROOM_MAX`.
 

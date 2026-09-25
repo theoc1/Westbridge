@@ -11,11 +11,11 @@ import (
 )
 
 func adminCommand(args []string) error {
-	if len(args) != 2 || args[0] != "bootstrap-admin" {
-		return errors.New("usage: westbridge bootstrap-admin LOGIN")
+	if len(args) != 2 || (args[0] != "bootstrap-admin" && args[0] != "reset-password") {
+		return errors.New("usage: westbridge {bootstrap-admin|reset-password} LOGIN")
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return errors.New("run bootstrap-admin in a terminal to enter the password securely")
+		return fmt.Errorf("run %s in a terminal to enter the password securely", args[0])
 	}
 	fmt.Fprint(os.Stderr, "Password (at least 3 characters): ")
 	password, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -38,6 +38,14 @@ func adminCommand(args []string) error {
 	}
 	store := auth.New(db)
 	defer func() { _ = db.Close() }()
+	if args[0] == "reset-password" {
+		user, err := store.ResetPassword(args[1], string(password))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Password reset for %s. Existing sessions revoked.\n", user.Login)
+		return nil
+	}
 	user, err := store.Bootstrap(args[1], string(password))
 	if err != nil {
 		return err
