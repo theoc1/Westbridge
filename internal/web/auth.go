@@ -81,7 +81,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 				return
 			}
 		}
-		if r.URL.Path == "/api/auth/login" {
+		if r.URL.Path == "/api/auth/login" || (r.URL.Path == "/api/locale" && (r.Method == "GET" || r.Method == "HEAD")) {
 			next.ServeHTTP(w, r)
 			return
 		}

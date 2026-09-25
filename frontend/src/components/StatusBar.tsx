@@ -1,3 +1,4 @@
+import { useParticipantCount, useT } from '../i18n.ts'
 interface StatusBarProps {
   room: string | null
   participantCount: number
@@ -13,23 +14,24 @@ export function StatusBar({
   asteriskConnected,
   socketConnected,
 }: StatusBarProps) {
+  const t = useT()
+  const countText = useParticipantCount()
+
   // Two links can be down, and they mean different things: a dead socket is a
   // stale page, a dead AMI link is a stale backend. Report the nearer break.
   const status = !socketConnected
-    ? { className: 'offline', label: 'Disconnected from the server' }
+    ? { className: 'offline', label: t('Disconnected from the server') }
     : asteriskConnected
-      ? { className: 'online', label: 'Connected to Asterisk' }
-      : { className: 'offline', label: 'Asterisk unreachable' }
+      ? { className: 'online', label: t('Connected to Asterisk') }
+      : { className: 'offline', label: t('Asterisk unreachable') }
 
   return (
     <header className="status-bar">
       <div className="status-bar-title">
-        <h1>Conference {room ?? '—'}</h1>
-        <p className="status-bar-count">
-          {participantCount === 1
-            ? '1 participant'
-            : `${participantCount} participants`}
-        </p>
+        <h1>
+          {t('Conference')} {room ?? '—'}
+        </h1>
+        <p className="status-bar-count">{countText(participantCount)}</p>
       </div>
       <p className={`status-link status-link-${status.className}`}>
         <span className="status-dot" aria-hidden="true" />

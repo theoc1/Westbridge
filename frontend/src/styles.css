@@ -439,3 +439,13 @@ body {
 .room-admin-summary strong { margin-right:auto; }
 .room-grants fieldset { display:flex; flex-direction:column; gap:.4rem; max-height:20rem; overflow:auto; margin-top:.6rem; }
 .room-grants label { display:flex; gap:.5rem; align-items:center; }
+
+.language-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  padding-bottom: 0;
+}
+.language-settings select { width: auto; }
+.language-settings p { flex-basis: 100%; margin: 0; }

@@ -26,6 +26,7 @@ import (
 	"github.com/dmalkin/westbridge/internal/hub"
 	"github.com/dmalkin/westbridge/internal/phonebook"
 	"github.com/dmalkin/westbridge/internal/rooms"
+	"github.com/dmalkin/westbridge/internal/settings"
 	"github.com/dmalkin/westbridge/internal/telephony"
 	"github.com/dmalkin/westbridge/internal/web/assets"
 )
@@ -53,6 +54,7 @@ type Phonebook interface {
 
 // Config tunes the server. Auth and Phonebook are required.
 type Config struct {
+	Settings                     *settings.Store
 	Manager                      *conference.Manager
 	Rooms                        *rooms.Store
 	RoomID, RoomName, RoomNumber string
@@ -189,6 +191,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) routes(frontend http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/locale", s.handleLocale)
+	mux.HandleFunc("PUT /api/admin/locale", s.handleSetLocale)
 	s.handleMethod(mux, http.MethodPost, "/api/auth/login", s.handleLogin)
 	s.handleMethod(mux, http.MethodGet, "/api/auth/me", s.handleMe)
 	s.handleMethod(mux, http.MethodPost, "/api/auth/logout", s.handleLogout)

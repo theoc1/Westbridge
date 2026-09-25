@@ -22,6 +22,7 @@ import (
 	"github.com/dmalkin/westbridge/internal/database"
 	"github.com/dmalkin/westbridge/internal/phonebook"
 	"github.com/dmalkin/westbridge/internal/rooms"
+	"github.com/dmalkin/westbridge/internal/settings"
 	"github.com/dmalkin/westbridge/internal/web"
 )
 
@@ -188,6 +189,7 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 		Rooms:          catalogue,
 		Auth:           store,
 		Phonebook:      phonebook.New(db),
+		Settings:       settings.New(db),
 		SecureCookies:  cfg.SecureCookies,
 		Logger:         logger.With("component", "web"),
 		AllowedOrigins: cfg.AllowedOrigins,

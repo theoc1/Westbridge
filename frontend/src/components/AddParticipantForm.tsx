@@ -1,3 +1,4 @@
+import { useT } from '../i18n.ts'
 import { useRoomID } from '../roomContext.ts'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
@@ -32,6 +33,8 @@ interface AddParticipantFormProps {
 }
 
 export function AddParticipantForm({ disabled }: AddParticipantFormProps) {
+  const t = useT()
+
   const roomId = useRoomID()
   const [number, setNumber] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
@@ -59,7 +62,7 @@ export function AddParticipantForm({ disabled }: AddParticipantFormProps) {
       <div className="add-form-row">
         <input
           id="number"
-          aria-label="Phone number"
+          aria-label={t('Phone number')}
           className="add-form-input"
           type="tel"
           inputMode="tel"
@@ -73,17 +76,17 @@ export function AddParticipantForm({ disabled }: AddParticipantFormProps) {
           }}
         />
         <button type="submit" className="button" disabled={disabled || pending}>
-          {pending ? 'Calling…' : 'Call'}
+          {pending ? t('Calling…') : t('Call')}
         </button>
       </div>
       {message !== null && (
         <p className="add-form-error" role="alert">
-          {message}
+          {t(message ?? '')}
         </p>
       )}
       {disabled && (
         <p className="add-form-note">
-          Dialling is unavailable while Asterisk is unreachable.
+          {t('Dialling is unavailable while Asterisk is unreachable.')}
         </p>
       )}
     </form>

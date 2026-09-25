@@ -200,6 +200,14 @@ explicitly; see [deploy/.env.example](deploy/.env.example).
 | `WB_RESYNC_INTERVAL` | `30s` | Participant resynchronization interval |
 | `WB_ALLOWED_ORIGINS` | Empty | Additional trusted Origin hosts for API and WebSocket, comma-separated |
 
+## Interface Language
+
+English is the default. Administrators can select **English** or **Русский** under
+**Administration → Application → Application language** and save the change. The language is
+stored in SQLite and applies to everyone, including the sign-in screen. Open
+windows pick it up within five seconds or when focused. User-provided names,
+phone numbers, and technical diagnostics without a translation remain unchanged.
+
 ## Users and Data Storage
 
 Administrators use **Administration → Users** to create accounts, change roles and passwords, and

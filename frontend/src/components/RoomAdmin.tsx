@@ -1,3 +1,4 @@
+import { useT } from '../i18n.ts'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { request } from '../api.ts'
@@ -7,6 +8,8 @@ import { useAsyncAction } from '../useConference.ts'
 
 const headers = { 'Content-Type': 'application/json' }
 export function RoomAdmin() {
+  const t = useT()
+
   const [rooms, setRooms] = useState<Room[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [name, setName] = useState('')
@@ -59,14 +62,15 @@ export function RoomAdmin() {
   }
   return (
     <main className="app admin-page">
-      <h1>Rooms</h1>
+      <h1>{t('Rooms')}</h1>
       <p className="add-form-note">
-        Administrators can control all rooms. Assign other users explicitly.
-        Busy rooms cannot be deleted.
+        {t(
+          'Administrators can control all rooms. Assign other users explicitly. Busy rooms cannot be deleted.',
+        )}
       </p>
       <form className="add-form" onSubmit={create}>
-        <h2>Create room</h2>
-        <label htmlFor="room-name">Name</label>
+        <h2>{t('Create room')}</h2>
+        <label htmlFor="room-name">{t('Name')}</label>
         <input
           id="room-name"
           className="add-form-input"
@@ -76,7 +80,7 @@ export function RoomAdmin() {
           maxLength={100}
           disabled={pending}
         />
-        <label htmlFor="room-number">Dial-in number</label>
+        <label htmlFor="room-number">{t('Dial-in number')}</label>
         <input
           id="room-number"
           className="add-form-input"
@@ -88,12 +92,12 @@ export function RoomAdmin() {
           disabled={pending}
         />
         <button className="button" disabled={pending}>
-          Create room
+          {t('Create room')}
         </button>
       </form>
       {(error || loadError) && (
         <p role="alert" className="add-form-error">
-          {error || loadError}
+          {t(error || loadError || '')}
         </p>
       )}
       <ul className="room-admin-list">
@@ -102,13 +106,13 @@ export function RoomAdmin() {
             <div className="room-admin-summary">
               <strong>{room.name}</strong>
               <span>{room.number}</span>
-              <span role="status">{room.state}</span>
+              <span role="status">{t(room.state)}</span>
               <button
                 className="button button-quiet"
                 disabled={room.state === 'deleting'}
                 onClick={() => setEditing(editing === room.id ? null : room.id)}
               >
-                Users
+                {t('Users')}
               </button>
               <button
                 className="button button-danger"
@@ -116,7 +120,10 @@ export function RoomAdmin() {
                 onClick={() => {
                   if (
                     window.confirm(
-                      `Delete room ${room.name} (${room.number})? Active calls will not be disconnected.`,
+                      t(
+                        'Delete room {name} ({number})? Active calls will not be disconnected.',
+                        { name: room.name, number: room.number },
+                      ),
                     )
                   )
                     void run(async () => {
@@ -131,18 +138,20 @@ export function RoomAdmin() {
                     })
                 }}
               >
-                Delete
+                {t('Delete')}
               </button>
             </div>
             {room.error && (
               <p role="alert" className="add-form-error">
-                {room.error} — synchronization retries automatically.
+                {t(room.error ?? '')}{' '}
+                {t('— synchronization retries automatically.')}
               </p>
             )}
             {room.state === 'deleting' && (
               <p>
-                Admission is closing. Waiting for any calls already in progress
-                to end.
+                {t(
+                  'Admission is closing. Waiting for any calls already in progress to end.',
+                )}
               </p>
             )}
             {editing === room.id && (
@@ -151,11 +160,13 @@ export function RoomAdmin() {
           </li>
         ))}
       </ul>
-      {rooms.length === 0 && !loadError && <p>No rooms yet.</p>}
+      {rooms.length === 0 && !loadError && <p>{t('No rooms yet.')}</p>}
     </main>
   )
 }
 function RoomGrants({ room, users }: { room: Room; users: User[] }) {
+  const t = useT()
+
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -196,7 +207,9 @@ function RoomGrants({ room, users }: { room: Room; users: User[] }) {
       }}
     >
       <fieldset disabled={!loaded || pending}>
-        <legend>Users allowed in {room.name}</legend>
+        <legend>
+          {t('Users allowed in')} {room.name}
+        </legend>
         {users
           .filter((u) => u.role !== 'admin')
           .map((user) => (
@@ -215,17 +228,17 @@ function RoomGrants({ room, users }: { room: Room; users: User[] }) {
                 }}
               />
               {user.login}
-              {!user.enabled ? ' (disabled)' : ''}
+              {!user.enabled ? t(' (disabled)') : ''}
             </label>
           ))}
         <button className="button" type="submit">
-          Save access
+          {t('Save access')}
         </button>
       </fieldset>
-      {saved && <p role="status">Access saved.</p>}
+      {saved && <p role="status">{t('Access saved.')}</p>}
       {(error || loadError) && (
         <p role="alert" className="add-form-error">
-          {error || loadError}
+          {t(error || loadError || '')}
         </p>
       )}
     </form>
