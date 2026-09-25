@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/dmalkin/westbridge/internal/auth"
+	"github.com/dmalkin/westbridge/internal/phonebook"
 	"github.com/dmalkin/westbridge/internal/web"
 )
 
@@ -30,7 +31,7 @@ func TestPersonalContactAPI(t *testing.T) {
 	if rec.Code != 201 {
 		t.Fatal(rec.Code, rec.Body.String())
 	}
-	var contact auth.Contact
+	var contact phonebook.Contact
 	if err := json.Unmarshal(rec.Body.Bytes(), &contact); err != nil {
 		t.Fatal(err)
 	}

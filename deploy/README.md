@@ -1,6 +1,6 @@
 # Local Asterisk test stand
 
-A single Asterisk 20 container with ConfBridge room **1000** and two softphone
+A single Asterisk 20 container with administrator-provisioned ConfBridge rooms and two softphone
 endpoints, **1001** and **1002**. It exists so the full Westbridge flow — live
 roster, kick, invite — can be exercised by hand against a real PBX.
 
@@ -14,7 +14,7 @@ roster, kick, invite — can be exercised by hand against a real PBX.
 | `asterisk/http.conf` | Asterisk's HTTP server, deliberately disabled |
 | `asterisk/pjsip.conf` | UDP transport plus endpoints 1001 and 1002 |
 | `asterisk/confbridge.conf` | `default_bridge` / `default_user` profiles |
-| `asterisk/extensions.conf` | `internal` (1000 → ConfBridge) and `conference-out` (invites) |
+| `asterisk/extensions.conf` | `internal`, `westbridge-join` (managed entry), and `conference-out` (invites) |
 | `.env.example` | `WB_*` values matching this stand |
 
 There is no official Asterisk image and the unofficial ones are mostly
@@ -67,12 +67,13 @@ Any SIP client works — Linphone, Zoiper, Telephone.app, Blink.
 | Domain / SIP server | `127.0.0.1` port `5060` (use your LAN IP from another device) |
 | Transport | UDP |
 
-Then **dial `1000`**. The call lands in `ConfBridge(1000)` and the participant
+Create room **7000** in **Administration → Rooms** and wait for **ready**, then
+**dial `7000`**. The call enters its managed ConfBridge and the participant
 must appear in the Westbridge roster within about a second. Verify from the
 CLI too:
 
 ```sh
-docker compose -f deploy/docker-compose.yml exec asterisk asterisk -rx 'confbridge list 1000'
+docker compose -f deploy/docker-compose.yml exec asterisk asterisk -rx 'confbridge list'
 ```
 
 To test the invite path, register the second softphone as `1002`, leave it
@@ -103,3 +104,25 @@ into the room.
 ```sh
 docker compose -f deploy/docker-compose.yml down
 ```
+
+## Managed Room Contract
+
+The stand reserves 7000–7999 for rooms and keeps 1000 as a legacy upgrade alias.
+Direct calls to 1001/1002 remain independent. Other ranges require matching changes
+to both the dialplan and `WB_ROOM_MIN`/`WB_ROOM_MAX`.
+
+Westbridge stores number-to-bridge mappings in the dedicated `westbridge-rooms`
+AstDB family using AMI DBPut/DBGet/DBDel. The existing `system` write permission
+covers registry changes. `WB_ROOM_CONTRACT=1` confirms the managed dialplan version.
+The admission gate assigns the `westbridge` channel group before its final
+registry check. Outgoing dial legs also join this group before dialling. This
+lets deletion close admission and wait for already admitted calls safely.
+
+The named `asterisk-data` volume persists AstDB in `/var/lib/asterisk`. Ordinary
+container recreation retains it; `docker compose down -v` removes it. Westbridge
+restores desired registrations from SQLite after reconnecting. Do not share this
+AstDB family with another controller. Back up SQLite as the source of room intent.
+
+After editing the dialplan, run `asterisk -rx 'dialplan reload'` in the container.
+No Asterisk reload is required for individual room creation/deletion. External
+SIP provider registration and PSTN routing are not managed by this feature.

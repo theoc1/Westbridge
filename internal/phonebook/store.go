@@ -1,15 +1,23 @@
-package auth
+// Package phonebook manages personal contacts, scoped to their owner.
+package phonebook
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/dmalkin/westbridge/internal/conference"
+	"github.com/dmalkin/westbridge/internal/telephony"
 )
+
+// Store borrows the application database; it does not own its lifetime.
+type Store struct{ db *sql.DB }
+
+// New uses an initialized database whose lifetime is owned by the caller.
+func New(db *sql.DB) *Store { return &Store{db: db} }
 
 // Contact belongs to one user; ownership is never accepted from request bodies.
 type Contact struct {
@@ -49,7 +57,7 @@ func (s *Store) SaveContact(ctx context.Context, owner, id int64, name, number s
 	if name == "" || !utf8.ValidString(name) || utf8.RuneCountInString(name) > 100 || strings.ContainsFunc(name, unicode.IsControl) {
 		return Contact{}, fmt.Errorf("%w: name must contain 1–100 characters without control characters", ErrContactInvalid)
 	}
-	number, err := conference.NormalizeNumber(number)
+	number, err := telephony.NormalizeNumber(number)
 	if err != nil {
 		return Contact{}, fmt.Errorf("%w: %s", ErrContactInvalid, err)
 	}

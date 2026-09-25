@@ -1,4 +1,4 @@
-// Package auth persists users, revocable sessions and personal contacts in SQLite.
+// Package auth manages users, credentials, roles and revocable sessions.
 package auth
 
 import (
@@ -10,15 +10,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
-	_ "modernc.org/sqlite" // Register the database/sql driver.
 )
 
 // Authentication and validation errors safe to report to the client.
@@ -42,53 +39,11 @@ type User struct {
 	Enabled bool   `json:"enabled"`
 }
 
-// Store owns the users, sessions and contacts database.
+// Store implements account and session operations on a shared database.
 type Store struct{ db *sql.DB }
 
-// Open initializes or opens the persistent database; :memory: is useful in tests.
-func Open(filename string) (*Store, error) {
-	if filename != ":memory:" {
-		if filename == "" {
-			return nil, errors.New("database path is required")
-		}
-		if err := os.MkdirAll(filepath.Dir(filename), 0700); err != nil {
-			return nil, err
-		}
-		f, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR, 0600)
-		if err != nil {
-			return nil, err
-		}
-		_ = f.Close()
-		if err := os.Chmod(filename, 0600); err != nil {
-			return nil, err
-		}
-	}
-	db, err := sql.Open("sqlite", filename)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`PRAGMA busy_timeout=5000;
- PRAGMA foreign_keys=ON;
- CREATE TABLE IF NOT EXISTS users (
- id INTEGER PRIMARY KEY, login TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL,
- role TEXT NOT NULL CHECK(role IN ('admin','user')), enabled INTEGER NOT NULL DEFAULT 1);
- CREATE TABLE IF NOT EXISTS sessions (
- token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- expires_at INTEGER NOT NULL);
- CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
- CREATE TABLE IF NOT EXISTS contacts (
- id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- name TEXT NOT NULL, number TEXT NOT NULL, UNIQUE(user_id, number));`)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return &Store{db: db}, nil
-}
-
-// Close releases database resources.
-func (s *Store) Close() error { return s.db.Close() }
+// New uses an initialized application database. The caller owns its lifetime.
+func New(db *sql.DB) *Store { return &Store{db: db} }
 
 var validLogin = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,63}$`)
 

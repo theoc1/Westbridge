@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/dmalkin/westbridge/internal/auth"
+	"github.com/dmalkin/westbridge/internal/database"
+	"github.com/dmalkin/westbridge/internal/rooms"
 	"io"
 	"log/slog"
 	"net"
@@ -50,10 +52,11 @@ func TestRunServesWithoutAsterisk(t *testing.T) {
 		ResyncInterval:    time.Hour,
 	}
 
-	store, err := auth.Open(cfg.DBPath)
+	db, err := database.Open(cfg.DBPath)
 	if err != nil {
 		t.Fatal(err)
 	}
+	store := auth.New(db)
 	if _, err = store.Bootstrap("tester", "test-password-123"); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +64,11 @@ func TestRunServesWithoutAsterisk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = store.Close()
+	room, err := rooms.New(db, 7000, 7999).Create(context.Background(), "Test", "7000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -70,7 +77,7 @@ func TestRunServesWithoutAsterisk(t *testing.T) {
 		done <- run(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	}()
 
-	body := getWithRetry(t, "http://"+listen+"/api/conference", token)
+	body := getWithRetry(t, "http://"+listen+"/api/rooms/"+room.ID+"/conference", token)
 
 	var snap struct {
 		Room              string `json:"room"`
@@ -80,8 +87,8 @@ func TestRunServesWithoutAsterisk(t *testing.T) {
 	if err := json.Unmarshal(body, &snap); err != nil {
 		t.Fatalf("decoding %q: %v", body, err)
 	}
-	if snap.Room != "1000" {
-		t.Errorf("room = %q, want 1000", snap.Room)
+	if snap.Room != "7000" {
+		t.Errorf("room = %q, want 7000", snap.Room)
 	}
 	if snap.AsteriskConnected {
 		t.Error("asteriskConnected = true, want false with no Asterisk running")

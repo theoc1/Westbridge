@@ -1,5 +1,4 @@
-// Command westbridge serves the web control panel for a single Asterisk
-// ConfBridge conference.
+// Command westbridge serves the web control panel for Asterisk ConfBridge rooms.
 package main
 
 import (
@@ -11,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,6 +19,9 @@ import (
 	"github.com/dmalkin/westbridge/internal/ami"
 	"github.com/dmalkin/westbridge/internal/auth"
 	"github.com/dmalkin/westbridge/internal/conference"
+	"github.com/dmalkin/westbridge/internal/database"
+	"github.com/dmalkin/westbridge/internal/phonebook"
+	"github.com/dmalkin/westbridge/internal/rooms"
 	"github.com/dmalkin/westbridge/internal/web"
 )
 
@@ -40,6 +43,7 @@ type config struct {
 	AMIUser           string
 	AMISecret         string
 	Room              string
+	RoomMin, RoomMax  int
 	OriginateContext  string
 	OriginateCallerID string
 	OriginateTimeout  time.Duration
@@ -68,7 +72,6 @@ func loadConfig() (config, error) {
 	}{
 		{"WB_AMI_USER", cfg.AMIUser},
 		{"WB_AMI_SECRET", cfg.AMISecret},
-		{"WB_ROOM", cfg.Room},
 		{"WB_ORIGINATE_CONTEXT", cfg.OriginateContext},
 	} {
 		if req.value == "" {
@@ -80,6 +83,14 @@ func loadConfig() (config, error) {
 	}
 
 	var err error
+	cfg.RoomMin, err = strconv.Atoi(envOr("WB_ROOM_MIN", "7000"))
+	if err != nil {
+		return cfg, err
+	}
+	cfg.RoomMax, err = strconv.Atoi(envOr("WB_ROOM_MAX", "7999"))
+	if err != nil || cfg.RoomMin < 1 || cfg.RoomMax < cfg.RoomMin || cfg.RoomMax > 999999999 {
+		return cfg, fmt.Errorf("invalid room range")
+	}
 	if cfg.OriginateTimeout, err = envDuration("WB_ORIGINATE_TIMEOUT", 30*time.Second); err != nil {
 		return config{}, err
 	}
@@ -131,16 +142,17 @@ func envDuration(name string, fallback time.Duration) (time.Duration, error) {
 // meantime. A conference control panel that refuses to start because the PBX
 // is down is exactly the tool you cannot use when the PBX is down.
 func run(ctx context.Context, cfg config, logger *slog.Logger) error {
+	db, err := database.Open(cfg.DBPath)
+	if err != nil {
+		return fmt.Errorf("open application database: %w", err)
+	}
+	store := auth.New(db)
+	defer func() { _ = db.Close() }()
+
 	// ami.Client takes its state callback at construction while the service
 	// needs the client, so the two are tied together through a closure. The
 	// client is not running yet, so nothing can observe the nil.
-	store, err := auth.Open(cfg.DBPath)
-	if err != nil {
-		return fmt.Errorf("open user database: %w", err)
-	}
-	defer func() { _ = store.Close() }()
-
-	var svc *conference.Service
+	var svc *conference.Manager
 
 	client := ami.New(ami.Config{
 		Addr:     cfg.AMIAddr,
@@ -154,7 +166,15 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 		},
 	})
 
-	svc = conference.New(client, conference.Config{
+	if cfg.RoomMin == 0 {
+		cfg.RoomMin = 7000
+		cfg.RoomMax = 7999
+	}
+	catalogue := rooms.New(db, cfg.RoomMin, cfg.RoomMax)
+	if err := catalogue.ImportLegacy(cfg.Room); err != nil {
+		return fmt.Errorf("import legacy room: %w", err)
+	}
+	svc = conference.NewManager(client, catalogue, ami.NewRoomRegistry(client), conference.Config{
 		Room:              cfg.Room,
 		OriginateContext:  cfg.OriginateContext,
 		OriginateCallerID: cfg.OriginateCallerID,
@@ -163,8 +183,11 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 		Logger:            logger.With("component", "conference"),
 	})
 
-	srv, err := web.New(svc, web.Config{
+	srv, err := web.New(nil, web.Config{
+		Manager:        svc,
+		Rooms:          catalogue,
 		Auth:           store,
+		Phonebook:      phonebook.New(db),
 		SecureCookies:  cfg.SecureCookies,
 		Logger:         logger.With("component", "web"),
 		AllowedOrigins: cfg.AllowedOrigins,

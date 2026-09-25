@@ -1,8 +1,10 @@
-package auth
+package phonebook
 
 import (
 	"context"
 	"errors"
+	"github.com/dmalkin/westbridge/internal/auth"
+	"github.com/dmalkin/westbridge/internal/database"
 	"path/filepath"
 	"testing"
 )
@@ -10,15 +12,16 @@ import (
 func TestPersonalContactsPersist(t *testing.T) {
 	ctx := context.Background()
 	file := filepath.Join(t.TempDir(), "book.db")
-	store, err := Open(file)
+	db, err := database.Open(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	alice, err := store.CreateUser("alice", "abc", "user")
+	store := New(db)
+	alice, err := auth.New(db).CreateUser("alice", "abc", "user")
 	if err != nil {
 		t.Fatal(err)
 	}
-	bob, err := store.CreateUser("bob", "abc", "admin")
+	bob, err := auth.New(db).CreateUser("bob", "abc", "admin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,14 +49,15 @@ func TestPersonalContactsPersist(t *testing.T) {
 	if _, err := store.SaveContact(ctx, alice.ID, contact.ID, "Renamed", "1003"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Close(); err != nil {
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = Open(file)
+	db, err = database.Open(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = store.Close() }()
+	store = New(db)
+	defer func() { _ = db.Close() }()
 	entries, err := store.Contacts(ctx, alice.ID)
 	if err != nil || len(entries) != 1 || entries[0].Name != "Renamed" || entries[0].Number != "1003" {
 		t.Fatal(entries, err)

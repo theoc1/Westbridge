@@ -23,6 +23,8 @@ export interface OutgoingCall {
 }
 
 export interface Snapshot {
+  roomId: string
+  roomName: string
   room: string
   /** False while the backend has no working AMI link; the roster is stale. */
   asteriskConnected: boolean

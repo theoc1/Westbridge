@@ -1,9 +1,13 @@
-package conference
+package telephony
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// ErrInvalidNumber rejects numbers that cannot safely be dialled.
+var ErrInvalidNumber = errors.New("conference: invalid number")
 
 // maxNumberLen bounds a dialled number generously; E.164 tops out at 15
 // digits, and internal dial plans occasionally use a few more.

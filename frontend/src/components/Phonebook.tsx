@@ -1,3 +1,4 @@
+import { useRoomID } from '../roomContext.ts'
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { callContacts } from '../callContacts.ts'
@@ -5,6 +6,7 @@ import { addParticipant } from '../api.ts'
 import type { Contact, usePhonebook } from '../phonebook.ts'
 
 export function Phonebook({ book, disabled }: { book: ReturnType<typeof usePhonebook>; disabled: boolean }) {
+  const roomId = useRoomID()
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [editor, setEditor] = useState<Contact | 'new' | null>(null)
   const [name, setName] = useState('')
@@ -38,7 +40,7 @@ export function Phonebook({ book, disabled }: { book: ReturnType<typeof usePhone
     if (callLock.current || disabled || chosen.length === 0) return
     callLock.current = true; setCalling(true); setCallErrors({})
     try {
-      await callContacts(chosen, addParticipant,
+      await callContacts(chosen, number => addParticipant(roomId, number),
         id => setSelected(previous => { const next = new Set(previous); next.delete(id); return next }),
         (id, message) => setCallErrors(previous => ({ ...previous, [id]: message })),
       )

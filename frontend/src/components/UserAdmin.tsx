@@ -24,7 +24,7 @@ export function UserAdmin({ currentUser }: { currentUser: User }) {
   }, [])
   return <main className="app admin-page">
     <h1>Users</h1>
-    <p className="add-form-note">All active users can manage the conference. Administrators can also manage users.</p>
+    <p className="add-form-note">Users can manage only assigned rooms. Administrators manage all rooms and user accounts.</p>
     <CreateUser onSaved={refresh} />
     {loading && <p role="status">Loading users…</p>}
     {loadError && <div role="alert"><p className="add-form-error">{loadError}</p><button className="button button-quiet" onClick={() => void refresh()}>Retry</button></div>}

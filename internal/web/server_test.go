@@ -18,6 +18,8 @@ import (
 	"github.com/dmalkin/westbridge/internal/ami"
 	"github.com/dmalkin/westbridge/internal/auth"
 	"github.com/dmalkin/westbridge/internal/conference"
+	"github.com/dmalkin/westbridge/internal/database"
+	"github.com/dmalkin/westbridge/internal/phonebook"
 	"github.com/dmalkin/westbridge/internal/web"
 )
 
@@ -125,11 +127,12 @@ func testCookie(srv *web.Server) *http.Cookie {
 func newServer(t *testing.T, svc web.Conference, tune func(*web.Config)) *web.Server {
 	t.Helper()
 
-	store, err := auth.Open(":memory:")
+	db, err := database.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := auth.New(db)
+	t.Cleanup(func() { _ = db.Close() })
 	if _, err = store.Bootstrap("tester", "test-password-123"); err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +142,7 @@ func newServer(t *testing.T, svc web.Conference, tune func(*web.Config)) *web.Se
 	}
 	cfg := web.Config{
 		Auth:          store,
+		Phonebook:     phonebook.New(db),
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		ActionTimeout: 2 * time.Second,
 		PingInterval:  50 * time.Millisecond,

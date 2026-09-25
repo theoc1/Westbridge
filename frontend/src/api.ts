@@ -58,44 +58,44 @@ async function errorMessage(response: Response): Promise<string> {
   return `request failed with status ${response.status}`
 }
 
-export function getConference(signal?: AbortSignal): Promise<Snapshot> {
-  return request<Snapshot>('/api/conference', { signal })
+export function getConference(roomId: string, signal?: AbortSignal): Promise<Snapshot> {
+  return request<Snapshot>(`/api/rooms/${encodeURIComponent(roomId)}/conference`, { signal })
 }
 
 /**
  * Queues an outbound call. Resolving only means Asterisk accepted the
  * Originate; the callee appears in the roster if and when they answer.
  */
-export function addParticipant(number: string): Promise<AddParticipantResponse> {
-  return request<AddParticipantResponse>('/api/conference/participants', {
+export function addParticipant(roomId: string, number: string): Promise<AddParticipantResponse> {
+  return request<AddParticipantResponse>(`/api/rooms/${encodeURIComponent(roomId)}/participants`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ number }),
   })
 }
 
-export function kickParticipant(uniqueid: string): Promise<void> {
+export function kickParticipant(roomId: string, uniqueid: string): Promise<void> {
   return request<void>(
-    `/api/conference/participants/${encodeURIComponent(uniqueid)}`,
+    `/api/rooms/${encodeURIComponent(roomId)}/participants/${encodeURIComponent(uniqueid)}`,
     { method: 'DELETE', headers: { 'Content-Type': 'application/json' } },
   )
 }
 
 
-export function cancelCall(id: string): Promise<void> {
-  return request<void>(`/api/conference/calls/${encodeURIComponent(id)}`, {
+export function cancelCall(roomId: string, id: string): Promise<void> {
+  return request<void>(`/api/rooms/${encodeURIComponent(roomId)}/calls/${encodeURIComponent(id)}`, {
     method: 'DELETE', headers: { 'Content-Type': 'application/json' },
   })
 }
 
-export function retryCall(id: string): Promise<AddParticipantResponse> {
-  return request<AddParticipantResponse>(`/api/conference/calls/${encodeURIComponent(id)}/retry`, {
+export function retryCall(roomId: string, id: string): Promise<AddParticipantResponse> {
+  return request<AddParticipantResponse>(`/api/rooms/${encodeURIComponent(roomId)}/calls/${encodeURIComponent(id)}/retry`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
   })
 }
 
-export function setParticipantMuted(uniqueid: string, muted: boolean): Promise<void> {
-  return request<void>(`/api/conference/participants/${encodeURIComponent(uniqueid)}/mute`, {
+export function setParticipantMuted(roomId: string, uniqueid: string, muted: boolean): Promise<void> {
+  return request<void>(`/api/rooms/${encodeURIComponent(roomId)}/participants/${encodeURIComponent(uniqueid)}/mute`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ muted }),
   })
 }

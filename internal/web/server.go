@@ -16,6 +16,7 @@ import (
 	"mime"
 	"net/http"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -23,6 +24,8 @@ import (
 	"github.com/dmalkin/westbridge/internal/auth"
 	"github.com/dmalkin/westbridge/internal/conference"
 	"github.com/dmalkin/westbridge/internal/hub"
+	"github.com/dmalkin/westbridge/internal/phonebook"
+	"github.com/dmalkin/westbridge/internal/rooms"
 	"github.com/dmalkin/westbridge/internal/telephony"
 	"github.com/dmalkin/westbridge/internal/web/assets"
 )
@@ -41,10 +44,23 @@ type Conference interface {
 	RetryCall(ctx context.Context, id string) (string, error)
 }
 
-// Config tunes the server. Every field has a usable default.
+// Phonebook exposes owner-scoped operations independently of authentication.
+type Phonebook interface {
+	Contacts(context.Context, int64) ([]phonebook.Contact, error)
+	SaveContact(context.Context, int64, int64, string, string) (phonebook.Contact, error)
+	DeleteContact(context.Context, int64, int64) error
+}
+
+// Config tunes the server. Auth and Phonebook are required.
 type Config struct {
-	Auth          *auth.Store
-	SecureCookies bool
+	Manager                      *conference.Manager
+	Rooms                        *rooms.Store
+	RoomID, RoomName, RoomNumber string
+	RoomAccess                   func(context.Context, auth.User) bool
+	AccessLock                   *sync.RWMutex
+	Auth                         *auth.Store
+	Phonebook                    Phonebook
+	SecureCookies                bool
 	// Logger receives request logs and recovered panics.
 	Logger *slog.Logger
 	// ActionTimeout bounds a kick or an invite, so a wedged AMI link cannot
@@ -85,6 +101,9 @@ func (c *Config) withDefaults() Config {
 // Server routes HTTP and WebSocket traffic to the conference service. It owns
 // the hub the snapshots fan out through.
 type Server struct {
+	closeOnce  sync.Once
+	done       chan struct{}
+	children   roomServers
 	loginLimit loginLimiter
 	loginSlots chan struct{}
 	cfg        Config
@@ -102,9 +121,14 @@ func New(svc Conference, cfg Config) (*Server, error) {
 	if resolved.Auth == nil {
 		return nil, errors.New("authentication store is required")
 	}
+	if resolved.Phonebook == nil {
+		return nil, errors.New("phonebook store is required")
+	}
 
 	s := &Server{
 		cfg:        resolved,
+		done:       make(chan struct{}),
+		children:   roomServers{servers: map[string]*Server{}},
 		loginSlots: make(chan struct{}, 4),
 		log:        resolved.Logger,
 		svc:        svc,
@@ -131,8 +155,13 @@ func New(svc Conference, cfg Config) (*Server, error) {
 	// Subscribe delivers the current snapshot before it returns, so the hub
 	// always has something to replay to a browser that connects during
 	// startup, with no window in which an update could be missed.
-	s.unsub = svc.Subscribe(s.publish)
+	if svc != nil {
+		s.unsub = svc.Subscribe(s.publish)
+	}
 
+	if resolved.Manager != nil {
+		go s.pruneRooms()
+	}
 	return s, nil
 }
 
@@ -140,10 +169,18 @@ func New(svc Conference, cfg Config) (*Server, error) {
 // shut down an http.Server built on top of this handler; that is the caller's
 // job, and should happen first.
 func (s *Server) Close() {
-	if s.unsub != nil {
-		s.unsub()
-	}
-	s.hub.Close()
+	s.closeOnce.Do(func() {
+		close(s.done)
+		s.children.mu.Lock()
+		for _, child := range s.children.servers {
+			child.Close()
+		}
+		s.children.mu.Unlock()
+		if s.unsub != nil {
+			s.unsub()
+		}
+		s.hub.Close()
+	})
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -160,13 +197,28 @@ func (s *Server) routes(frontend http.Handler) http.Handler {
 	mux.HandleFunc("/api/users", s.handleUsers)
 	s.handleMethod(mux, http.MethodPatch, "/api/users/{id}", s.handleUpdateUser)
 
-	s.handleMethod(mux, http.MethodGet, "/api/conference", s.handleGetConference)
-	s.handleMethod(mux, http.MethodPost, "/api/conference/participants", s.handleAddParticipant)
-	s.handleMethod(mux, http.MethodDelete, "/api/conference/participants/{uniqueid}", s.handleKickParticipant)
-	s.handleMethod(mux, http.MethodPut, "/api/conference/participants/{uniqueid}/mute", s.handleMuteParticipant)
-	s.handleMethod(mux, http.MethodGet, "/ws", s.handleWebSocket)
-	s.handleMethod(mux, http.MethodDelete, "/api/conference/calls/{id}", s.handleCancelCall)
-	s.handleMethod(mux, http.MethodPost, "/api/conference/calls/{id}/retry", s.handleRetryCall)
+	if s.cfg.Manager != nil {
+		s.handleMethod(mux, http.MethodGet, "/api/rooms", s.handleRooms)
+		mux.HandleFunc("/api/admin/rooms", s.handleAdminRooms)
+		mux.HandleFunc("/api/admin/rooms/{roomID}", s.handleAdminRooms)
+		mux.HandleFunc("/api/admin/rooms/{roomID}/users", s.handleAdminRooms)
+		s.handleMethod(mux, http.MethodGet, "/api/rooms/{roomID}/conference", s.handleRoomRequest)
+		s.handleMethod(mux, http.MethodPost, "/api/rooms/{roomID}/participants", s.handleRoomRequest)
+		s.handleMethod(mux, http.MethodDelete, "/api/rooms/{roomID}/participants/{uniqueid}", s.handleRoomRequest)
+		s.handleMethod(mux, http.MethodPut, "/api/rooms/{roomID}/participants/{uniqueid}/mute", s.handleRoomRequest)
+		s.handleMethod(mux, http.MethodDelete, "/api/rooms/{roomID}/calls/{id}", s.handleRoomRequest)
+		s.handleMethod(mux, http.MethodPost, "/api/rooms/{roomID}/calls/{id}/retry", s.handleRoomRequest)
+		s.handleMethod(mux, http.MethodGet, "/ws", s.handleRoomRequest)
+	} else {
+		s.handleMethod(mux, http.MethodGet, "/api/conference", s.handleGetConference)
+		s.handleMethod(mux, http.MethodPost, "/api/conference/participants", s.handleAddParticipant)
+		s.handleMethod(mux, http.MethodDelete, "/api/conference/participants/{uniqueid}", s.handleKickParticipant)
+		s.handleMethod(mux, http.MethodPut, "/api/conference/participants/{uniqueid}/mute", s.handleMuteParticipant)
+		s.handleMethod(mux, http.MethodGet, "/ws", s.handleWebSocket)
+		s.handleMethod(mux, http.MethodDelete, "/api/conference/calls/{id}", s.handleCancelCall)
+		s.handleMethod(mux, http.MethodPost, "/api/conference/calls/{id}/retry", s.handleRetryCall)
+
+	}
 
 	// Anything else under /api/ is a genuine 404 in JSON. Without this the
 	// SPA catch-all below would answer a mistyped endpoint with an HTML page.
@@ -207,6 +259,7 @@ func (s *Server) handleMethod(mux *http.ServeMux, method, path string, h http.Ha
 // publish marshals a snapshot once and hands it to the hub. It runs on the
 // conference service's goroutine, so it must never block.
 func (s *Server) publish(snap conference.Snapshot) {
+	snap = s.roomSnapshot(snap)
 	payload, err := json.Marshal(wsMessage{Type: "snapshot", Snapshot: snap})
 	if err != nil {
 		// Unreachable with the current types, but a silent stall of every
@@ -225,7 +278,7 @@ type wsMessage struct {
 }
 
 func (s *Server) handleGetConference(w http.ResponseWriter, r *http.Request) {
-	writeJSON(r.Context(), s.log, w, http.StatusOK, s.svc.Snapshot())
+	writeJSON(r.Context(), s.log, w, http.StatusOK, s.roomSnapshot(s.svc.Snapshot()))
 }
 
 type addParticipantRequest struct {
@@ -327,8 +380,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	sessionCheck := time.NewTicker(time.Second)
 	defer sessionCheck.Stop()
 	validSession := func() bool {
-		if _, err := s.cfg.Auth.Authenticate(cookie.Value); err != nil {
+		user, err := s.cfg.Auth.Authenticate(cookie.Value)
+		if err != nil {
 			_ = conn.Close(websocket.StatusPolicyViolation, "session ended")
+			return false
+		}
+		if s.cfg.RoomAccess != nil && !s.cfg.RoomAccess(ctx, user) {
+			_ = conn.Close(websocket.StatusPolicyViolation, "room access revoked")
 			return false
 		}
 		return true
@@ -356,11 +414,21 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				_ = conn.Close(websocket.StatusTryAgainLater, "client is not keeping up")
 				return
 			}
-			if !validSession() {
-				return
-			}
-			if err := s.writeWS(ctx, conn, payload); err != nil {
-				s.log.Debug("web: websocket write failed", "error", err, "remote", r.RemoteAddr)
+			alive := func() bool {
+				if s.cfg.AccessLock != nil {
+					s.cfg.AccessLock.RLock()
+					defer s.cfg.AccessLock.RUnlock()
+				}
+				if !validSession() {
+					return false
+				}
+				if err := s.writeWS(ctx, conn, payload); err != nil {
+					s.log.Debug("web: websocket write failed", "error", err)
+					return false
+				}
+				return true
+			}()
+			if !alive {
 				return
 			}
 
@@ -511,4 +579,13 @@ func notBuiltHandler() http.Handler {
 			"westbridge was built without a frontend; run `make build` to embed it",
 			http.StatusServiceUnavailable)
 	})
+}
+
+func (s *Server) roomSnapshot(snap conference.Snapshot) conference.Snapshot {
+	if s.cfg.RoomID != "" {
+		snap.RoomID = s.cfg.RoomID
+		snap.RoomName = s.cfg.RoomName
+		snap.Room = s.cfg.RoomNumber
+	}
+	return snap
 }

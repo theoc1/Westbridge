@@ -99,7 +99,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			}
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/users") && user.Role != "admin" {
+		if (strings.HasPrefix(r.URL.Path, "/api/users") || strings.HasPrefix(r.URL.Path, "/api/admin/")) && user.Role != "admin" {
 			s.writeError(r.Context(), w, 403, "administrator access required")
 			return
 		}

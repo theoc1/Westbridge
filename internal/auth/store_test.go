@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"github.com/dmalkin/westbridge/internal/database"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,10 +11,11 @@ import (
 
 func TestPersistenceAndRevocation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "users.db")
-	s, err := Open(path)
+	db, err := database.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	s := New(db)
 	admin, err := s.Bootstrap(" Admin ", "long-password-123")
 	if err != nil {
 		t.Fatal(err)
@@ -48,12 +50,13 @@ func TestPersistenceAndRevocation(t *testing.T) {
 	if !strings.HasPrefix(stored, "$argon2id$") {
 		t.Fatal("password not hashed")
 	}
-	_ = s.Close()
-	s, err = Open(path)
+	_ = db.Close()
+	db, err = database.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = s.Close() }()
+	s = New(db)
+	defer func() { _ = db.Close() }()
 	if got, err := s.Authenticate(token); err != nil || got.ID != user.ID {
 		t.Fatal(got, err)
 	}
@@ -90,11 +93,12 @@ func TestPersistenceAndRevocation(t *testing.T) {
 	}
 }
 func TestSessionExpiryLogoutAndValidation(t *testing.T) {
-	s, err := Open(":memory:")
+	db, err := database.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = s.Close() }()
+	s := New(db)
+	defer func() { _ = db.Close() }()
 	if _, err = s.Bootstrap("admin", "ab"); !errors.Is(err, ErrInvalid) {
 		t.Fatal(err)
 	}
@@ -129,11 +133,12 @@ func TestSessionExpiryLogoutAndValidation(t *testing.T) {
 }
 
 func TestThreeCharacterPasswords(t *testing.T) {
-	s, err := Open(":memory:")
+	db, err := database.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = s.Close() }()
+	s := New(db)
+	defer func() { _ = db.Close() }()
 	if _, err = s.Bootstrap("admin", "abc"); err != nil {
 		t.Fatal(err)
 	}

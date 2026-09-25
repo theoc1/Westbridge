@@ -44,7 +44,7 @@ func (s *Service) applyCallLocked(attempt *callAttempt, input callInput) callEff
 
 // Invite queues an independent asynchronous call with a stable application ID.
 func (s *Service) Invite(ctx context.Context, number string) (string, error) {
-	normalized, err := NormalizeNumber(number)
+	normalized, err := telephony.NormalizeNumber(number)
 	if err != nil {
 		return "", err
 	}

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { ApiError, request } from './api.ts'
 import { useAsyncAction } from './useConference.ts'
+import { RoomAdmin } from './components/RoomAdmin.tsx'
 import { UserAdmin } from './components/UserAdmin.tsx'
 
 export interface User { id: number; login: string; role: 'admin' | 'user'; enabled: boolean }
@@ -47,7 +48,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <header className="account-bar">
       <strong>Westbridge</strong>
       <span>{user.login}</span>
-      {user.role === 'admin' && <button className="button button-quiet" onClick={() => setAdmin(!admin)}>{admin ? 'Conference' : 'Users'}</button>}
+      {user.role === 'admin' && <button className="button button-quiet" onClick={() => setAdmin(!admin)}>{admin ? 'Conferences' : 'Administration'}</button>}
       <button className="button button-quiet" disabled={pending} onClick={async () => {
         if (await run(() => request<void>('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }))) {
           window.dispatchEvent(new Event(AUTH_EXPIRED))
@@ -55,7 +56,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       }}>Sign out</button>
       {error && <span role="alert" className="add-form-error">{error}</span>}
     </header>
-    {admin && user.role === 'admin' ? <UserAdmin currentUser={user} /> : <Fragment key={user.id}>{children}</Fragment>}
+    {admin && user.role === 'admin' ? <AdminPanel user={user} /> : <Fragment key={user.id}>{children}</Fragment>}
   </>
 }
 
@@ -83,4 +84,9 @@ function Login({ onLogin, serverError }: { onLogin: (user: User) => void; server
       {(error || serverError) && <p className="add-form-error" role="alert">{error || serverError}</p>}
     </form>
   </main>
+}
+
+function AdminPanel({user}:{user:User}) {
+ const [tab,setTab]=useState<'users'|'rooms'>('rooms')
+ return <><nav className="admin-tabs" aria-label="Administration"><button className="button button-quiet" aria-pressed={tab==='rooms'} onClick={()=>setTab('rooms')}>Rooms</button><button className="button button-quiet" aria-pressed={tab==='users'} onClick={()=>setTab('users')}>Users</button></nav>{tab==='rooms'?<RoomAdmin/>:<UserAdmin currentUser={user}/>}</>
 }

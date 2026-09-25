@@ -15,9 +15,9 @@ export interface ConferenceState {
   error: string | null
 }
 
-function socketURL(): string {
+function socketURL(roomId: string): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}/ws`
+  return `${protocol}//${window.location.host}/ws?roomId=${encodeURIComponent(roomId)}`
 }
 
 function parseSnapshot(data: unknown): Snapshot | null {
@@ -35,6 +35,8 @@ function parseSnapshot(data: unknown): Snapshot | null {
   }
   return {
     room: message.room,
+    roomId: message.roomId,
+    roomName: message.roomName,
     asteriskConnected: message.asteriskConnected,
     participants: message.participants,
     calls: message.calls ?? [],
@@ -50,7 +52,7 @@ function parseSnapshot(data: unknown): Snapshot | null {
  * socket is blocked by a proxy that still passes plain HTTP. Whichever answers
  * first wins; the socket then keeps the state fresh.
  */
-export function useConference(): ConferenceState {
+export function useConference(roomId: string): ConferenceState {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -69,7 +71,7 @@ export function useConference(): ConferenceState {
     let attempt = 0
 
     const controller = new AbortController()
-    getConference(controller.signal)
+    getConference(roomId, controller.signal)
       .then((initial) => {
         if (cancelled) {
           return
@@ -90,7 +92,7 @@ export function useConference(): ConferenceState {
       if (cancelled) {
         return
       }
-      const socket = new WebSocket(socketURL())
+      const socket = new WebSocket(socketURL(roomId))
       socketRef.current = socket
 
       socket.onopen = () => {
@@ -107,7 +109,7 @@ export function useConference(): ConferenceState {
           return
         }
         const next = parseSnapshot(event.data)
-        if (next !== null) {
+        if (next !== null && next.roomId === roomId) {
           setSnapshot(next)
         }
       }
@@ -120,7 +122,8 @@ export function useConference(): ConferenceState {
         }
         setConnected(false)
         if (event.code === 1008) {
-          window.dispatchEvent(new Event("westbridge-auth-expired"))
+          setSnapshot(null)
+          window.dispatchEvent(new Event("westbridge-rooms-changed"))
           return
         }
         const delay = Math.min(RECONNECT_MIN_MS * 2 ** attempt, RECONNECT_MAX_MS)
@@ -149,7 +152,7 @@ export function useConference(): ConferenceState {
         socket.close()
       }
     }
-  }, [])
+  }, [roomId])
 
   return { snapshot, connected, error }
 }

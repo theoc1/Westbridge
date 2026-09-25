@@ -1,3 +1,4 @@
+import { useRoomID } from '../roomContext.ts'
 import { contactNumber } from '../phonebook.ts'
 import { formatDuration } from '../duration.ts'
 import { useEffect, useState } from 'react'
@@ -75,10 +76,11 @@ function ParticipantRow({ participant, disabled, duration }: ParticipantRowProps
   // inline rather than a window.confirm() so it cannot block the render loop
   // or get suppressed by the browser.
   const [confirming, setConfirming] = useState(false)
+  const roomId = useRoomID()
   const { pending, error, run } = useAsyncAction()
 
   const onKick = async () => {
-    const ok = await run(() => kickParticipant(participant.uniqueid))
+    const ok = await run(() => kickParticipant(roomId, participant.uniqueid))
     if (!ok) {
       // Leave the error visible and step back to the idle state; the row
       // usually disappears on the next snapshot when the kick did succeed.
@@ -114,7 +116,7 @@ function ParticipantRow({ participant, disabled, duration }: ParticipantRowProps
         <button type="button" className="button button-quiet" disabled={pending || disabled}
           aria-pressed={participant.muted}
           title={participant.muted ? 'Let this participant speak' : 'Mute this participant’s microphone; they can still hear the conference'}
-          onClick={() => { void run(() => setParticipantMuted(participant.uniqueid, !participant.muted)) }}>
+          onClick={() => { void run(() => setParticipantMuted(roomId, participant.uniqueid, !participant.muted)) }}>
           {participant.muted ? 'Unmute' : 'Mute'}
         </button>
         {confirming ? (
@@ -160,6 +162,7 @@ function CallRow({ call, stale, socketConnected, duration, name }: {
   name?: string;
   call: OutgoingCall; stale: boolean; socketConnected: boolean; duration: string
 }) {
+  const roomId = useRoomID()
   const { pending, error, run } = useAsyncAction()
   const failed = call.state === 'failed'
   return <li className={`roster-row participant-row ${failed ? 'call-failed' : 'call-dialing'}`}>
@@ -173,8 +176,8 @@ function CallRow({ call, stale, socketConnected, duration, name }: {
     </div>
     {!failed && <span className="roster-duration" title="Time since dialling">{duration}</span>}
     <div className="roster-actions">
-      {failed && <button type="button" className="button" disabled={pending || stale} onClick={() => { void run(() => retryCall(call.id)) }}>Retry</button>}
-      <button type="button" className="button button-quiet" disabled={pending || call.cancelling || (failed ? !socketConnected : stale)} onClick={() => { void run(() => cancelCall(call.id)) }}>
+      {failed && <button type="button" className="button" disabled={pending || stale} onClick={() => { void run(() => retryCall(roomId, call.id)) }}>Retry</button>}
+      <button type="button" className="button button-quiet" disabled={pending || call.cancelling || (failed ? !socketConnected : stale)} onClick={() => { void run(() => cancelCall(roomId, call.id)) }}>
         {pending ? 'Working…' : failed ? 'Remove' : 'Cancel'}
       </button>
     </div>

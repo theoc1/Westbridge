@@ -430,3 +430,12 @@ body {
 }
 /* Keep multiline errors and confirmations readable inside flex scrollers. */
 .contact-row, .participant-row { flex-shrink: 0; }
+
+.room-selector, .admin-tabs { display:flex; align-items:center; flex-wrap:wrap; gap: .65rem; max-width:1200px; margin:.6rem auto; padding:0 1rem; }
+.room-selector select { margin-left:.5rem; padding:.35rem; max-width:70vw; }
+.room-admin-list { list-style:none; padding:0; display:grid; gap:.5rem; }
+.room-admin-row { border:1px solid #cbd5e1; border-radius:4px; padding:.65rem; }
+.room-admin-summary { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
+.room-admin-summary strong { margin-right:auto; }
+.room-grants fieldset { display:flex; flex-direction:column; gap:.4rem; max-height:20rem; overflow:auto; margin-top:.6rem; }
+.room-grants label { display:flex; gap:.5rem; align-items:center; }

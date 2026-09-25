@@ -24,27 +24,40 @@ type CallController struct {
 	cfg    CallConfig
 }
 
+// CallConfig specifies the conference destination and outgoing dial settings.
 type CallConfig struct {
-	Room     string
-	Context  string
-	CallerID string
-	Timeout  time.Duration
+	Room            string
+	AdmissionNumber string
+	Context         string
+	CallerID        string
+	Timeout         time.Duration
 }
 
+// NewCallController wraps an existing transport without starting goroutines.
 func NewCallController(client callTransport, cfg CallConfig) *CallController {
 	return &CallController{client: client, cfg: cfg}
 }
 
+// Connected reports whether commands can currently reach Asterisk.
 func (c *CallController) Connected() bool { return c.client.Connected() }
 
+// Originate queues a call; an acknowledgement does not imply an answer.
 func (c *CallController) Originate(ctx context.Context, id, number string) error {
 	action := NewAction("Originate")
 	action.Add("ActionID", id)
 	action.Add("Channel", fmt.Sprintf("Local/%s@%s/n", number, c.cfg.Context))
 	action.Add("ChannelId", id)
 	action.Add("OtherChannelId", id+"-dial")
-	action.Add("Application", "ConfBridge")
-	action.Add("Data", c.cfg.Room)
+	if c.cfg.AdmissionNumber != "" {
+		action.Add("Context", "westbridge-join")
+		action.Add("Exten", c.cfg.AdmissionNumber)
+		action.Add("Priority", "1")
+		action.Add("Variable", "__WB_BRIDGE="+c.cfg.Room)
+		action.Add("Variable", "__WB_ROOM_NUMBER="+c.cfg.AdmissionNumber)
+	} else {
+		action.Add("Application", "ConfBridge")
+		action.Add("Data", c.cfg.Room)
+	}
 	action.Add("CallerID", c.cfg.CallerID)
 	action.Add("Timeout", strconv.FormatInt(c.cfg.Timeout.Milliseconds(), 10))
 	action.Add("Async", "true")
@@ -56,6 +69,7 @@ func (c *CallController) Originate(ctx context.Context, id, number string) error
 	return err // Missing acknowledgement leaves the outcome unknown.
 }
 
+// Hangup requests termination of the attempt identified by id.
 func (c *CallController) Hangup(ctx context.Context, id string) error {
 	action := NewAction("Hangup")
 	action.Add("Channel", id)

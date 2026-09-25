@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/dmalkin/westbridge/internal/auth"
+	"github.com/dmalkin/westbridge/internal/database"
 	"golang.org/x/term"
 )
 
@@ -31,11 +32,12 @@ func adminCommand(args []string) error {
 	if string(password) != string(confirmation) {
 		return errors.New("passwords do not match")
 	}
-	store, err := auth.Open(envOr("WB_DB_PATH", "data/westbridge.db"))
+	db, err := database.Open(envOr("WB_DB_PATH", "data/westbridge.db"))
 	if err != nil {
 		return err
 	}
-	defer func() { _ = store.Close() }()
+	store := auth.New(db)
+	defer func() { _ = db.Close() }()
 	user, err := store.Bootstrap(args[1], string(password))
 	if err != nil {
 		return err

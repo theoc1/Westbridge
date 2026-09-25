@@ -1,10 +1,10 @@
-package conference_test
+package telephony_test
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/dmalkin/westbridge/internal/conference"
+	"github.com/dmalkin/westbridge/internal/telephony"
 )
 
 func TestNormalizeNumberAccepts(t *testing.T) {
@@ -16,7 +16,7 @@ func TestNormalizeNumberAccepts(t *testing.T) {
 		"8.800.555.35.35":    "88005553535",
 	}
 	for in, want := range cases {
-		got, err := conference.NormalizeNumber(in)
+		got, err := telephony.NormalizeNumber(in)
 		if err != nil {
 			t.Errorf("NormalizeNumber(%q): unexpected error %v", in, err)
 			continue
@@ -44,12 +44,12 @@ func TestNormalizeNumberRejects(t *testing.T) {
 		"1234567890123456789012345",
 	}
 	for _, in := range bad {
-		got, err := conference.NormalizeNumber(in)
+		got, err := telephony.NormalizeNumber(in)
 		if err == nil {
 			t.Errorf("NormalizeNumber(%q) = %q, want an error", in, got)
 			continue
 		}
-		if !errors.Is(err, conference.ErrInvalidNumber) {
+		if !errors.Is(err, telephony.ErrInvalidNumber) {
 			t.Errorf("NormalizeNumber(%q): error %v does not wrap ErrInvalidNumber", in, err)
 		}
 	}

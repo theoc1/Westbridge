@@ -83,3 +83,16 @@ func TestDecodeCallEvent(t *testing.T) {
 		})
 	}
 }
+
+func TestManagedOriginateUsesAdmissionGate(t *testing.T) {
+	transport := &callTransportStub{}
+	controller := NewCallController(transport, CallConfig{Room: "wb-room", AdmissionNumber: "7000", Context: "conference-out"})
+	if err := controller.Originate(context.Background(), "attempt", "1002"); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{"Context": "westbridge-join", "Exten": "7000", "Priority": "1", "Application": "", "Data": "", "ChannelId": "attempt", "OtherChannelId": "attempt-dial"} {
+		if got := transport.last.Get(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+}

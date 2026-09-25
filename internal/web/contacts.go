@@ -6,12 +6,13 @@ import (
 	"strconv"
 
 	"github.com/dmalkin/westbridge/internal/auth"
+	"github.com/dmalkin/westbridge/internal/phonebook"
 )
 
 func (s *Server) handleContacts(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET", "HEAD":
-		contacts, err := s.cfg.Auth.Contacts(r.Context(), r.Context().Value(userKey{}).(auth.User).ID)
+		contacts, err := s.cfg.Phonebook.Contacts(r.Context(), r.Context().Value(userKey{}).(auth.User).ID)
 		if err != nil {
 			s.writeContactError(w, r, err)
 			return
@@ -35,7 +36,7 @@ func (s *Server) handleContact(w http.ResponseWriter, r *http.Request) {
 	case "PUT":
 		s.saveContact(w, r, id)
 	case "DELETE":
-		if err := s.cfg.Auth.DeleteContact(r.Context(), r.Context().Value(userKey{}).(auth.User).ID, id); err != nil {
+		if err := s.cfg.Phonebook.DeleteContact(r.Context(), r.Context().Value(userKey{}).(auth.User).ID, id); err != nil {
 			s.writeContactError(w, r, err)
 			return
 		}
@@ -54,7 +55,7 @@ func (s *Server) saveContact(w http.ResponseWriter, r *http.Request, id int64) {
 	if !s.decodeBody(w, r, &req) {
 		return
 	}
-	contact, err := s.cfg.Auth.SaveContact(r.Context(), r.Context().Value(userKey{}).(auth.User).ID, id, req.Name, req.Number)
+	contact, err := s.cfg.Phonebook.SaveContact(r.Context(), r.Context().Value(userKey{}).(auth.User).ID, id, req.Name, req.Number)
 	if err != nil {
 		s.writeContactError(w, r, err)
 		return
@@ -68,11 +69,11 @@ func (s *Server) saveContact(w http.ResponseWriter, r *http.Request, id int64) {
 
 func (s *Server) writeContactError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
-	case errors.Is(err, auth.ErrContactInvalid):
+	case errors.Is(err, phonebook.ErrContactInvalid):
 		s.writeError(r.Context(), w, 400, err.Error())
-	case errors.Is(err, auth.ErrContactMissing):
+	case errors.Is(err, phonebook.ErrContactMissing):
 		s.writeError(r.Context(), w, 404, err.Error())
-	case errors.Is(err, auth.ErrContactDuplicate):
+	case errors.Is(err, phonebook.ErrContactDuplicate):
 		s.writeError(r.Context(), w, 409, err.Error())
 	default:
 		s.log.Error("phonebook request failed", "error", err)

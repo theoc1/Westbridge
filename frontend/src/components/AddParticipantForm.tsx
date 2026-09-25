@@ -1,3 +1,4 @@
+import { useRoomID } from '../roomContext.ts'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { addParticipant } from '../api.ts'
@@ -31,6 +32,7 @@ interface AddParticipantFormProps {
 }
 
 export function AddParticipantForm({ disabled }: AddParticipantFormProps) {
+  const roomId = useRoomID()
   const [number, setNumber] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
   const { pending, error, clearError, run } = useAsyncAction()
@@ -44,7 +46,7 @@ export function AddParticipantForm({ disabled }: AddParticipantFormProps) {
     }
     clearError()
     const dialed = number.trim()
-    const ok = await run(() => addParticipant(dialed))
+    const ok = await run(() => addParticipant(roomId, dialed))
     if (ok) {
       setNumber('')
     }

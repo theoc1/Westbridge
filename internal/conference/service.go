@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dmalkin/westbridge/internal/ami"
+	"github.com/dmalkin/westbridge/internal/telephony"
 )
 
 // Errors the service returns to its callers. HTTP handlers map these onto
@@ -24,7 +25,7 @@ var (
 	ErrParticipantNotFound = errors.New("conference: participant not found")
 
 	// ErrInvalidNumber rejects a number that is not safe to dial.
-	ErrInvalidNumber = errors.New("conference: invalid number")
+	ErrInvalidNumber = telephony.ErrInvalidNumber
 )
 
 // AMI event and action names, spelled once so a typo cannot go unnoticed in
@@ -58,6 +59,8 @@ type Config struct {
 	// Room is the ConfBridge conference number this instance controls. Events
 	// for any other conference are ignored.
 	Room string
+	// AdmissionNumber enables the managed admission dialplan.
+	AdmissionNumber string
 	// OriginateContext is the dialplan context an invited number is dialled
 	// through.
 	OriginateContext string
@@ -95,6 +98,8 @@ func (c *Config) withDefaults() Config {
 // that sending it whole removes an entire class of desync bugs.
 type Snapshot struct {
 	Room              string        `json:"room"`
+	RoomID            string        `json:"roomId,omitempty"`
+	RoomName          string        `json:"roomName,omitempty"`
 	AsteriskConnected bool          `json:"asteriskConnected"`
 	Participants      []Participant `json:"participants"`
 	Calls             []Call        `json:"calls"`
@@ -124,6 +129,7 @@ type CallController interface {
 //	go client.Run(ctx)
 //	go svc.Run(ctx)
 
+// Service coordinates conference state, outgoing calls and snapshot publication.
 type Service struct {
 	calls  CallController
 	client AMIClient
@@ -159,7 +165,7 @@ func New(client AMIClient, cfg Config) *Service {
 	resolved := cfg.withDefaults()
 	return &Service{
 		client:  client,
-		calls:   ami.NewCallController(client, ami.CallConfig{Room: resolved.Room, Context: resolved.OriginateContext, CallerID: resolved.OriginateCallerID, Timeout: resolved.OriginateTimeout}),
+		calls:   ami.NewCallController(client, ami.CallConfig{Room: resolved.Room, AdmissionNumber: resolved.AdmissionNumber, Context: resolved.OriginateContext, CallerID: resolved.OriginateCallerID, Timeout: resolved.OriginateTimeout}),
 		cfg:     resolved,
 		log:     resolved.Logger,
 		roster:  NewRoster(),

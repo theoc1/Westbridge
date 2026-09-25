@@ -334,7 +334,7 @@ func TestDecoderListSequence(t *testing.T) {
 
 // A newline inside a field would end the packet early and let the rest of the
 // value be read as an action of its own, so WriteTo refuses it. Reaching this
-// needs a value that survived conference.NormalizeNumber, but the codec is the
+// needs a value that survived telephony.NormalizeNumber, but the codec is the
 // last place that can still tell, so it is the place that checks.
 func TestMessageWriteToRejectsNewlines(t *testing.T) {
 	tests := []struct {
